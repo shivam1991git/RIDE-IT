@@ -1,0 +1,64 @@
+.main-container{
+    background-position: bottom;
+    background-size: cover;
+    width: 100%;
+    height: 20vh;
+}
+
+.background-text h2{
+    color: white;
+    font-size: 40px;
+    position: absolute;
+    top: 39%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+
+}
+.background-text h2 span{
+    color: #ffc61a;
+}
+.background-text .booknow {
+    height: 100%;
+    padding: 1rem 2rem;
+    color: rgb(255, 251, 251);
+    font-size: 30px;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    display: flex;
+    font-weight: 500;
+}
+
+.background-text .booknow:hover {
+    padding: 1.5rem 3rem;
+    border: 1px solid white;
+    border-radius: 15px;
+    background: #ffc61a;
+    animation-play-state: paused;
+    color: rgb(181, 5, 5);
+    transition: 0.2s linear;
+}
+
+@keyframes vibrate {
+    0% {
+        transform: translateX(0);
+    }
+    25% {
+        transform: translateX(-7px);
+    }
+    50% {
+        transform: translateX(7px);
+    }
+    75% {
+        transform: translateX(-2px);
+    }
+    100% {
+        transform: translateX(2px);
+    }
+}
+
+.booknow {
+    display: inline-block;
+    animation: vibrate 1s linear infinite;
+    
+}

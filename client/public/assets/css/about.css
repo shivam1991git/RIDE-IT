@@ -1,0 +1,276 @@
+
+
+h1, h2, h3 {
+    margin: 0 0 20px 0;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #eee;
+}
+
+p {
+    line-height: 1.6;
+    margin: 10px 0;
+}
+
+.container-a {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.feature, .team-member, .driver {
+    flex: 1;
+    padding: 20px;
+    background: #f9f9f9;
+    border-radius: 10px;
+    transition: transform 0.3s ease;
+    cursor: pointer;
+}
+
+.feature:hover, .team-member:hover, .driver:hover {
+    transform: translateY(-10px);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+}
+
+.separation {
+    margin: 40px 0;
+    height: 2px;
+    background: #eee;
+}
+
+.team, .drivers {
+    text-align: center;
+}
+
+.team-member img, .driver img {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    margin-bottom: 10px;
+}
+
+.animate-fade-in {
+    animation: fadeIn 1s ease-in-out;
+}
+
+.animate-slide-in {
+    animation: slideIn 1s ease-in-out;
+}
+
+.animate-zoom-in {
+    animation: zoomIn 1s ease-in-out;
+}
+
+.animate-slide-up {
+    animation: slideUp 1s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(-20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes zoomIn {
+    from {
+        transform: scale(0.9);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+
+
+.about {
+    background: linear-gradient(rgb(0, 255, 213) 0%, rgb(227, 129, 24) 100%);
+    padding: 27px;
+    text-align: center;
+}
+.aboutbody{
+    background: linear-gradient(rgb(230, 9, 46) 0%, rgb(14, 89, 228) 100%);
+}
+
+.about h1 {
+    font-size: 50px;
+    
+    color: black;
+    margin-bottom: 20px;
+}
+
+.about p {
+    font-size: 18px;
+     color: red;
+    line-height: 1.6;
+    margin-bottom: 20px;
+    text-align: center;
+}
+.container-a {
+   
+    margin: 10px auto;
+    background-color: #8d4fe3;
+    padding: 24px;
+    border-radius: 10px;
+    box-shadow: 0 0 10px rgba(7, 63, 205, 0.699);
+    
+}
+
+.about .container-a {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    
+}
+
+.about .container-a .feature {
+    flex: 1;
+    margin: 20px;
+    padding: 20px;
+    border-radius: 10px;
+    background-color: #7d3cd7;
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease;
+   
+}
+
+.about .container-a .feature:hover {
+    transform: translateY(-10px);
+}
+
+.about .container-a .feature h2 {
+    font-size: 24px;
+    color: #000000;
+    margin-bottom: 10px;
+}
+
+.about .container-a .feature p {
+    font-size: 16px;
+    color: white;
+    line-height: 1.6;
+}
+.content{
+    min-height: 10vh;
+   
+  }
+.team {
+    margin-top: 30px;
+}
+
+.team h2 {
+  font-size: 32px;
+    margin-bottom: 20px;
+    text-decoration: underline;
+    color: black;
+}
+
+.team-member {
+    margin-bottom: 40px;
+    text-align: center;
+    background-color: #7d3cd7;
+}
+.team-member:hover{
+  transform: translate(-10px);
+}
+.team-member img {
+  width: 100px;
+    border-radius: 8%;
+    margin-bottom: 0px;
+}
+
+.team-member h3 {
+    font-size: 24px;
+    margin-bottom: 10px;
+    color: #000000;
+}
+
+.team-member p {
+    color: white;
+    font-size: 16px;
+    line-height: 1.6;
+}
+.drivers {
+    margin-top: 30px;
+ 
+}
+
+.drivers h2 {
+  font-size: 32px;
+    margin-bottom: 16px;
+    text-decoration: underline;
+    color: black;
+}
+
+.driver {
+    margin-bottom: 40px;
+    text-align: center;
+    background-color: #7d3cd7;
+
+}
+.driver:hover{
+  transform: translate(-10px);
+}
+
+.driver img {
+  width: 100px;
+    border-radius: 8%;
+    margin-bottom: 0px;
+}
+
+.driver h3 {
+    font-size: 24px;
+    margin-bottom: 10px;
+    color: #000000;
+}
+
+.driver p {
+  color: white;
+    font-size: 16px;
+    line-height: 1.6;
+}
+
+.contact-button {
+    display: inline-block;
+    background-color: #007bff;
+    color: #fff;
+    padding: 10px 20px;
+    text-decoration: none;
+    border-radius: 5px;
+    transition: background-color 0.3s ease;
+}
+
+.contact-button:hover {
+    background-color: #0056b3;
+}
+.separation {
+    height: 7px;
+    background-color: rgb(46, 44, 44);
+    position: relative;
+    z-index: 20;
+}

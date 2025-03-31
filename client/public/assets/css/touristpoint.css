@@ -1,0 +1,151 @@
+/* .main-container{
+    background-image: url(images/vns.avif);
+}
+.main-container {
+   height: 30vh;
+} */
+.tourist{
+    background: linear-gradient(rgb(230, 9, 46) 0%, rgb(14, 89, 228) 100%);
+}
+.content{
+    min-height: 10vh;  
+  }
+
+.home-container {
+    background: #ffc61a;
+    padding: 2rem 7%;
+    width: 100%;
+    padding-top: 4rem;
+    }
+    
+    .home-content {
+    position: relative;
+    padding-top: 4rem;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    }
+    
+    .main-tariff {
+    padding: 4rem 4%;
+    }
+    
+    .main-tariff h1 {
+    font-size: 45px;
+    text-align: center;
+    padding-bottom: 3rem;
+    }
+    
+    .main-tariff h1 span {
+    color: #ffc61a;
+    }
+    
+    .separation {
+    height: 7px;
+    background-color: rgb(46, 44, 44);
+    position: relative;
+    z-index: 20;
+    }
+    .first {
+    display: flex;
+    justify-content: center;
+    max-width: 70vw;
+    margin: auto;
+    color: rgb(255, 253, 253);
+    justify-content: center;
+    align-items: center;
+    gap: 112px;
+    }
+    
+    .first:hover{
+    transform: translate(-15px);
+    }
+    
+    .secImg {
+    position: relative;
+    }
+    
+    .secImg img {
+    width: 379px;
+    position: relative;
+    z-index: 10;
+    }
+    
+    section.first>div {
+    display: flex;
+    flex-direction: column;
+    padding: 17px 0;
+    }
+    
+    section.first>div :nth-child(1) {
+    font-size: 38px;
+    font-weight: 600;
+    margin: 5px;
+    padding: 5px;
+    }
+    
+    
+    section.first>div :nth-child(2) {
+    font-size: 17px;
+    margin: 5px;
+    padding: 5px;
+    
+    }
+    section.first a {
+    color: white;
+    padding: 1rem 3rem;
+    width:fit-content;
+    background: black;
+    display: inline-block;
+    margin-top: 1rem;
+    font-size: medium;
+    text-align: center;
+    cursor: pointer;
+    }
+    @media screen and (max-width: 768px) {
+    html {
+    font-size: 50%;
+    }
+    .navbar {
+    position: absolute;
+    top: -100%;
+    right: 0;
+    left: 0;
+    }
+    .navbar a {
+    display: block;
+    font-size: 1.5rem;
+    background: #ffc61a;
+    margin: 1rem;
+    padding: 1rem;
+    }
+    .header {
+    padding: 2rem;
+    }
+    .first {
+    flex-wrap: wrap;
+    gap: 0px;
+    }
+    
+    section.first>div :nth-child(1) {
+    font-size: 34px;
+    font-weight: bold;
+    margin: -9px;
+    padding: 0px;
+    }
+    section.first>div :nth-child(2) {
+    font-size: 15px;
+    margin: 6px;}
+    
+    .secImg img {
+    width: 60%;
+    margin-top: 0px;
+    }
+    section.first>div{
+    
+    width: 100%;
+    text-align: center;
+    align-items: center;
+    }
+    }

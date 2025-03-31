@@ -1,0 +1,116 @@
+/* .main-container {
+    height: 40vh;
+    
+ background-image: url(images/carrr.jpg);
+
+ } */
+ .main-tariff {
+    padding: 3rem 7%;
+}
+
+.main-tariff h1 {
+    font-size: 38px;
+    text-align: center;
+    padding-bottom: 3rem;
+}
+
+.main-tariff h1 span {
+    color: #ffc61a;
+}
+
+.inner-tarrif {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 15px;
+}
+
+.tarrif-container {
+    flex: 1 1 350px;
+    text-align: center;
+    padding: 5rem 0;
+}
+
+.tarrif-container img {
+    width: 60%;
+    margin-top: -50px;
+}
+
+.tarrif-container .inner-box h2 {
+    font-size: 30px;
+}
+
+.tarrif-container .inner-box p {
+    font-size: 1.5rem;
+    padding: 2rem;
+}
+
+.tarrif-container .inner-box h3 {
+    color: #6b5000;
+    font-size: 2rem;
+}
+
+.tarrif-container .inner-box a {
+    font-size: 1.5rem;
+    padding: 1rem 3rem;
+}
+
+.tarrif-container:nth-child(2) {
+    background: #481aff;
+}
+
+.tarrif-container:nth-child(5) {
+    background: #481aff;
+}
+
+.heading-yellow {
+    color: black;
+}
+
+.yellw-section {
+    color: black !important;
+}
+
+.tarrif-container a {
+    color: white;
+    padding: 1rem 3rem;
+    background: black;
+    display: inline-block;
+    margin-top: 1rem;
+}
+
+@media (max-width:768px) {
+    html {
+        font-size: 50%;
+    }
+    #menu-bars {
+        display: initial;
+    }
+    .navbar {
+        position: absolute;
+        top: -100%;
+        right: 0;
+        left: 0;
+    }
+    .navbar a {
+        display: block;
+        font-size: 1.5rem;
+        background: #ffc61a;
+        margin: 1rem;
+        padding: 1rem;
+    }
+    .header {
+        padding: 2rem;
+    }
+    .tarrif-container {
+        padding-bottom: 4rem;
+    }
+    .tarrif-container img {
+        width: 60%;
+        margin-top: 0px;
+    }
+    .background-text h2 {
+        width: 100%;
+        text-align: center;
+    }
+}

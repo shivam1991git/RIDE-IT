@@ -1,0 +1,101 @@
+
+ /* .main-container{
+    height: 40vh;
+        background-image: url(images/carrr.jpg);
+    } */
+    .feedbackbody{
+        background: linear-gradient(rgb(230, 9, 46) 0%, rgb(14, 89, 228) 100%);
+    }
+    .content{
+        min-height: 10vh;
+       
+      }
+    .container {
+        max-width: 800px;
+        margin: 20px auto;
+        background-color: #0f19de;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+    }
+    .container h1 {
+        padding: 27px;
+        text-align: center;
+        font-size: 40px;
+        color: #efeb10;
+        margin-bottom: 20px;
+    }
+    
+    form {
+        text-align: left;
+    }
+    
+    .question {
+        margin-bottom: 20px;
+        color: gold;
+    }
+    
+    label {
+        display: block;
+        font-size: 20px;
+        
+    }
+    
+    .rating {
+        display: flex;
+        align-items: center;
+    }
+    
+    .rating input[type="radio"] {
+        display: none;
+    }
+    
+    .rating label {
+        cursor: pointer;
+        margin-right: 10px;
+    }
+    
+    .rating label::before {
+        content: "\2605";
+        font-size: 50px;
+        color: black;
+    }
+    
+    button[type="submit"] {
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        cursor: pointer;
+        border-radius: 5px;
+    }
+    
+    button[type="submit"]:hover {
+        background-color: #0056b3;
+    }
+    .rating label.active::before {
+        color: gold; 
+    }
+    #additional-comments{
+        width: 75%;
+        height: 168px;
+        border-radius: 5px;
+        color: black;
+    }
+    .star {
+        cursor: pointer;
+      }
+      
+      .star input[type="radio"] {
+        display: none;
+      }
+      
+      .star:before {
+        content: '\2605';
+        color: #ccc;
+      }
+      
+      .star.selected:before {
+        color: yellow;
+      }
+      
