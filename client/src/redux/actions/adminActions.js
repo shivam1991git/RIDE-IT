@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { message } from 'antd'
+import { redirectTo } from '../../utils/navigation'
 
 
 export const adminLogin = (reqObj) => async dispatch => {
@@ -12,7 +13,7 @@ export const adminLogin = (reqObj) => async dispatch => {
         message.success('Login Successfull !')
         dispatch({ type: 'LOADING', payload: false })
         setTimeout(()=>{
-            window.location.href = '/admindashboard'
+            redirectTo('/admindashboard')
            
         }, 500);
 
@@ -29,10 +30,10 @@ export const adminRegister = (reqObj) => async dispatch => {
     dispatch({ type: 'LOADING', payload: true })
 
     try {
-        const response = await axios.post('/api/admins/adminregister', reqObj)
+        await axios.post('/api/admins/adminregister', reqObj)
         message.success('Registration Successfull !')
         setTimeout(()=>{
-            window.location.href = '/adminlogin'
+            redirectTo('/adminlogin')
            
         }, 500);
         

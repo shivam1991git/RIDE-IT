@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { message } from 'antd'
+import { redirectTo } from '../../utils/navigation'
 
 
 export const userLogin = (reqObj) => async dispatch => {
@@ -12,7 +13,7 @@ export const userLogin = (reqObj) => async dispatch => {
         message.success('Login Successfull !')
         dispatch({ type: 'LOADING', payload: false })
         setTimeout(()=>{
-            window.location.href = '/'
+            redirectTo('/')
            
         }, 500);
 
@@ -29,10 +30,10 @@ export const userRegister = (reqObj) => async dispatch => {
     dispatch({ type: 'LOADING', payload: true })
 
     try {
-        const response = await axios.post('/api/users/register', reqObj)
+        await axios.post('/api/users/register', reqObj)
         message.success('Registration Successfull !')
         setTimeout(()=>{
-            window.location.href = '/login'
+            redirectTo('/login')
            
         }, 500);
         
@@ -72,7 +73,7 @@ export const addUser = (reqObj) =>async dispatch=>{
         dispatch({type: 'LOADING', payload:false})
         message.success('New User Added successfull')
         setTimeout(() =>{
-            window.location.href='/adminuser'
+            redirectTo('/adminuser')
         }, 500)
 
     } catch (error) {
@@ -90,7 +91,7 @@ export const editUser = (reqObj) =>async dispatch=>{
         dispatch({type: 'LOADING', payload:false})
         message.success('User Edited successfully')
         setTimeout(() =>{
-            window.location.href='/adminuser'
+            redirectTo('/adminuser')
         }, 500)
 
     } catch (error) {

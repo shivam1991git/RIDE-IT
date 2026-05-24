@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 
 const bookingSchema = new mongoose.Schema({
     car: { type: mongoose.Schema.Types.ObjectId, ref: 'cars' },
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'users' },
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'user' },
     bookedTimeSlot: {
         from: { type: String },
         to: { type: String }
@@ -16,7 +16,7 @@ const bookingSchema = new mongoose.Schema({
         default: 'Pending',
     },
     driverConfirmed: { type: Boolean, default: false },
-    driver: { type: mongoose.Schema.Types.ObjectId, ref: 'users' }
+    driver: { type: mongoose.Schema.Types.ObjectId, ref: 'driver' }
 },
     { timestamps: true }
 );

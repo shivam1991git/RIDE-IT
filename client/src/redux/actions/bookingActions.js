@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { message } from 'antd';
+import { redirectTo } from '../../utils/navigation';
 
 export const checkAvailability = (carId, from, to) => async dispatch => {
     try {
@@ -19,7 +20,7 @@ export const bookCar = (reqObj) => async dispatch => {
         dispatch({ type: 'LOADING', payload: false });
         message.success("Booking Confirmed!");
         setTimeout(() => {
-            window.location.href = "/userbooking";
+            redirectTo('/userbooking');
         }, 500);
     } catch (error) {
         dispatch({ type: 'LOADING', payload: false });
@@ -71,10 +72,10 @@ export const updateBookingStatus = (bookingId, status) => async dispatch => {
     }
 };
 
-export const confirmDriverBooking = (bookingId, driverId) => async dispatch => {
+export const confirmDriverBooking = (bookingId) => async dispatch => {
     dispatch({ type: 'LOADING', payload: true });
     try {
-        await axios.post('/api/bookings/confirmDriver', { bookingId, driverId });
+        await axios.post('/api/bookings/confirmDriver', { bookingId });
         message.success('Booking confirmed by driver successfully');
         dispatch({ type: 'LOADING', payload: false });
         dispatch(getAllBookings()); // Refresh the bookings list

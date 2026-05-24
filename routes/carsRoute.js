@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 
 const Car = require("../models/carModel")
+const auth = require("../middleware/authMiddleware")
 
 router.get("/getallcars", async (req, res) => {
     try {
@@ -12,7 +13,7 @@ router.get("/getallcars", async (req, res) => {
     }
 });
 
-router.post('/addcar', async (req, res) => {
+router.post('/addcar', auth(['admin']), async (req, res) => {
     try {
         const newcar = new Car(req.body)
         await newcar.save()
@@ -22,9 +23,12 @@ router.post('/addcar', async (req, res) => {
     }
 });
 
-router.post('/editcar', async (req, res) => {
+router.post('/editcar', auth(['admin']), async (req, res) => {
     try {
         const car = await Car.findOne({ _id: req.body._id })
+        if (!car) {
+            return res.status(404).json({ message: "Car not found" })
+        }
         car.name = req.body.name
         car.image = req.body.image
         car.fuelType = req.body.fuelType
@@ -40,7 +44,7 @@ router.post('/editcar', async (req, res) => {
 });
 
 
-router.post('/deletecar', async (req, res) => {
+router.post('/deletecar', auth(['admin']), async (req, res) => {
     try {
         await Car.findOneAndDelete({ _id: req.body.carid });
 

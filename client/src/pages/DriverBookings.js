@@ -10,17 +10,17 @@ function DriverBookings() {
   const { loading } = useSelector(state => state.alertsReducer);
   const dispatch = useDispatch();
 
-  const user = JSON.parse(localStorage.getItem('user'));
+  const driver = JSON.parse(localStorage.getItem('driver'));
 
   useEffect(() => {
     dispatch(getAllBookings());
   }, [dispatch]);
 
   const confirmBooking = (record) => {
-    if (user && user._id) {
-      dispatch(confirmDriverBooking(record._id, user._id));
+    if (driver && driver._id) {
+      dispatch(confirmDriverBooking(record._id));
     } else {
-      message.error('User not found. Please log in.');
+      message.error('Driver not found. Please log in.');
     }
   };
 
@@ -28,22 +28,22 @@ function DriverBookings() {
     {
       title: 'User Name',
       dataIndex: 'user',
-      render: (user) => user?.name || 'N/A',
+      render: (user) => user?.fullName || user?.username || 'N/A',
     },
     {
       title: 'User Phone',
       dataIndex: 'user',
-      render: (user) => user?.phone || 'N/A',
+      render: (user) => user?.phoneNumber || 'N/A',
     },
     {
       title: 'Driver Name',
       dataIndex: 'driver',
-      render: (driver) => driver?.name || 'N/A',
+      render: (driver) => driver?.fullName || driver?.username || 'N/A',
     },
     {
       title: 'Driver Phone',
       dataIndex: 'driver',
-      render: (driver) => driver?.phone || 'N/A',
+      render: (driver) => driver?.phoneNumber || 'N/A',
     },
     {
       title: 'Car',

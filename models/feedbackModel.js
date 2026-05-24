@@ -6,8 +6,8 @@ const feedbackSchema = new mongoose.Schema({
   userBehavior: { type: Number },
   appRating: { type: Number, required: true },
   additionalComments: { type: String },
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'users' },
-  driverId: { type: mongoose.Schema.Types.ObjectId, ref: 'drivers' },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'user' },
+  driverId: { type: mongoose.Schema.Types.ObjectId, ref: 'driver' },
 }, { timestamps: true });
 
 const Feedback = mongoose.model('feedbacks', feedbackSchema);

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { redirectTo } from '../utils/navigation';
 
 function UserLocation() {
     const [pickupLocation, setPickupLocation] = useState('');
@@ -19,7 +20,7 @@ function UserLocation() {
         console.log('Dropoff Location:', dropoffLocation);
         
         // Proceed with form submission, e.g., redirecting to /cars
-        window.location.href = '/cars';
+        redirectTo('/cars');
     };
 
     return (

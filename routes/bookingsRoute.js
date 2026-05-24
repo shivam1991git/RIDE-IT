@@ -3,39 +3,56 @@ const router = express.Router();
 const Booking = require("../models/bookingModel");
 const Car = require("../models/carModel");
 const moment = require('moment');
-const stripe = require('stripe')('Enter stripe Key');
+const { randomUUID } = require('crypto');
+const auth = require("../middleware/authMiddleware");
 
-router.post("/bookcar", async (req, res) => {
+const activeStatuses = ['Pending', 'Confirmed', 'Driver Confirmation Pending'];
+
+function isOverlapping(firstSlot, secondSlot) {
+    const firstStart = moment(firstSlot.from);
+    const firstEnd = moment(firstSlot.to);
+    const secondStart = moment(secondSlot.from);
+    const secondEnd = moment(secondSlot.to);
+
+    return firstStart.isBefore(secondEnd) && secondStart.isBefore(firstEnd);
+}
+
+router.post("/bookcar", auth(['user']), async (req, res) => {
     const { car, bookedTimeSlot } = req.body;
 
     try {
-        const existingBookings = await Booking.find({ car, status: 'Pending' });
+        if (!car || !bookedTimeSlot?.from || !bookedTimeSlot?.to) {
+            return res.status(400).json({ message: 'Car and valid time slot are required' });
+        }
 
-        let isAvailable = true;
-        existingBookings.forEach(booking => {
-            if (
-                moment(bookedTimeSlot.from).isBetween(booking.bookedTimeSlot.from, booking.bookedTimeSlot.to) ||
-                moment(bookedTimeSlot.to).isBetween(booking.bookedTimeSlot.from, booking.bookedTimeSlot.to) ||
-                moment(booking.bookedTimeSlot.from).isBetween(bookedTimeSlot.from, bookedTimeSlot.to) ||
-                moment(booking.bookedTimeSlot.to).isBetween(bookedTimeSlot.from, bookedTimeSlot.to)
-            ) {
-                isAvailable = false;
-            }
-        });
+        if (!moment(bookedTimeSlot.from).isValid() || !moment(bookedTimeSlot.to).isValid() || !moment(bookedTimeSlot.from).isBefore(moment(bookedTimeSlot.to))) {
+            return res.status(400).json({ message: 'Please select a valid start and end time' });
+        }
+
+        const existingBookings = await Booking.find({ car, status: { $in: activeStatuses } });
+        const isAvailable = !existingBookings.some(booking => isOverlapping(bookedTimeSlot, booking.bookedTimeSlot));
 
         if (!isAvailable) {
             return res.status(400).json({ message: 'Car is already booked at the selected time slot' });
         }
 
-        req.body.transactionId = '1234';
         const newBooking = new Booking({
             ...req.body,
-            status: 'Pending'
+            user: req.auth.id,
+            transactionId: randomUUID(),
+            status: req.body.driverRequired ? 'Driver Confirmation Pending' : 'Confirmed'
         });
         await newBooking.save();
 
         const carToUpdate = await Car.findOne({ _id: car });
-        carToUpdate.bookedTimeSlot.push(bookedTimeSlot);
+        if (!carToUpdate) {
+            return res.status(404).json({ message: 'Car not found' });
+        }
+        carToUpdate.bookedTimeSlot.push({
+            ...bookedTimeSlot,
+            status: newBooking.status,
+            bookingId: newBooking._id
+        });
         await carToUpdate.save();
 
         res.send('Your booking is successful!');
@@ -45,31 +62,33 @@ router.post("/bookcar", async (req, res) => {
     }
 });
 
-router.get("/getallbookings", async (req, res) => {
+router.get("/getallbookings", auth(['user', 'driver', 'admin']), async (req, res) => {
     try {
-        const bookings = await Booking.find().populate('car');
+        let query = {};
+        if (req.auth.role === 'user') {
+            query.user = req.auth.id;
+        }
+        if (req.auth.role === 'driver') {
+            query = {
+                driverRequired: true,
+                status: { $in: ['Driver Confirmation Pending', 'Pending', 'Confirmed'] },
+                $or: [{ driver: req.auth.id }, { driver: { $exists: false } }, { driver: null }]
+            };
+        }
+
+        const bookings = await Booking.find(query).populate('car').populate('user', 'username fullName phoneNumber email').populate('driver', 'username fullName phoneNumber email');
         res.send(bookings);
     } catch (error) {
         return res.status(400).json(error);
     }
 });
 
-router.post('/checkAvailability', async (req, res) => {
+router.post('/checkAvailability', auth(['user']), async (req, res) => {
     const { carId, from, to } = req.body;
     try {
-        const bookings = await Booking.find({ car: carId, status: 'Pending' });
+        const bookings = await Booking.find({ car: carId, status: { $in: activeStatuses } });
 
-        let isAvailable = true;
-        bookings.forEach(booking => {
-            if (
-                moment(from).isBetween(booking.bookedTimeSlot.from, booking.bookedTimeSlot.to) ||
-                moment(to).isBetween(booking.bookedTimeSlot.from, booking.bookedTimeSlot.to) ||
-                moment(booking.bookedTimeSlot.from).isBetween(from, to) ||
-                moment(booking.bookedTimeSlot.to).isBetween(from, to)
-            ) {
-                isAvailable = false;
-            }
-        });
+        const isAvailable = !bookings.some(booking => isOverlapping({ from, to }, booking.bookedTimeSlot));
 
         res.send({ isAvailable });
     } catch (error) {
@@ -77,22 +96,29 @@ router.post('/checkAvailability', async (req, res) => {
     }
 });
 
-router.post('/cancelBooking', async (req, res) => {
+router.post('/cancelBooking', auth(['user', 'admin']), async (req, res) => {
     const { bookingId } = req.body;
     try {
         const booking = await Booking.findById(bookingId);
         if (!booking) {
             return res.status(404).json({ message: 'Booking not found' });
         }
+        if (req.auth.role === 'user' && booking.user.toString() !== req.auth.id) {
+            return res.status(403).json({ message: 'You can only cancel your own booking' });
+        }
         booking.status = 'Cancelled';
         await booking.save();
+        await Car.updateOne(
+            { _id: booking.car, 'bookedTimeSlot.bookingId': booking._id },
+            { $set: { 'bookedTimeSlot.$.status': 'Cancelled' } }
+        );
         res.send('Booking cancelled successfully');
     } catch (error) {
         return res.status(400).json(error);
     }
 });
 
-router.post('/updateStatus', async (req, res) => {
+router.post('/updateStatus', auth(['admin']), async (req, res) => {
     const { bookingId, status } = req.body;
     try {
         const booking = await Booking.findById(bookingId);
@@ -101,14 +127,18 @@ router.post('/updateStatus', async (req, res) => {
         }
         booking.status = status;
         await booking.save();
+        await Car.updateOne(
+            { _id: booking.car, 'bookedTimeSlot.bookingId': booking._id },
+            { $set: { 'bookedTimeSlot.$.status': status } }
+        );
         res.send('Booking status updated successfully');
     } catch (error) {
         return res.status(400).json(error);
     }
 });
 
-router.post('/confirmDriver', async (req, res) => {
-    const { bookingId, driverId } = req.body;
+router.post('/confirmDriver', auth(['driver']), async (req, res) => {
+    const { bookingId } = req.body;
     try {
       const booking = await Booking.findById(bookingId).populate('user').populate('car');
       if (!booking) {
@@ -117,10 +147,14 @@ router.post('/confirmDriver', async (req, res) => {
       if (booking.driverConfirmed) {
         return res.status(400).json({ message: 'Booking already confirmed by another driver' });
       }
-      booking.driver = driverId;
+      booking.driver = req.auth.id;
       booking.driverConfirmed = true;
       booking.status = 'Confirmed';
       await booking.save();
+      await Car.updateOne(
+        { _id: booking.car, 'bookedTimeSlot.bookingId': booking._id },
+        { $set: { 'bookedTimeSlot.$.status': 'Confirmed' } }
+      );
       res.send('Booking confirmed by driver successfully');
     } catch (error) {
       return res.status(400).json({ error: 'An error occurred while confirming the booking' });
@@ -128,4 +162,3 @@ router.post('/confirmDriver', async (req, res) => {
   });
 
 module.exports = router;
-

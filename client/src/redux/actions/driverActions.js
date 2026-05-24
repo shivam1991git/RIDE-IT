@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { message } from 'antd'
+import { redirectTo } from '../../utils/navigation'
 
 
 export const driverLogin = (reqObj) => async dispatch => {
@@ -12,7 +13,7 @@ export const driverLogin = (reqObj) => async dispatch => {
         message.success('Login Successfull !')
         dispatch({ type: 'LOADING', payload: false })
         setTimeout(()=>{
-            window.location.href = '/'
+            redirectTo('/')
            
         }, 500);
 
@@ -29,10 +30,10 @@ export const driverRegister = (reqObj) => async dispatch => {
     dispatch({ type: 'LOADING', payload: true })
 
     try {
-        const response = await axios.post('/api/drivers/driverregister', reqObj)
+        await axios.post('/api/drivers/driverregister', reqObj)
         message.success('Registration Successfull !')
         setTimeout(()=>{
-            window.location.href = '/driverlogin'
+            redirectTo('/driverlogin')
            
         }, 500);
         
@@ -72,7 +73,7 @@ export const addDriver = (reqObj) =>async dispatch=>{
         dispatch({type: 'LOADING', payload:false})
         message.success('New Driver Added successfull')
         setTimeout(() =>{
-            window.location.href='/admindriver'
+            redirectTo('/admindriver')
         }, 500)
 
     } catch (error) {
@@ -90,7 +91,7 @@ export const editDriver = (reqObj) =>async dispatch=>{
         dispatch({type: 'LOADING', payload:false})
         message.success('Driver Edited successfully')
         setTimeout(() =>{
-            window.location.href='/admindriver'
+            redirectTo('/admindriver')
         }, 500)
 
     } catch (error) {

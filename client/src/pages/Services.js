@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import DefaultLayout from '../components/DefultLayout';
 import Footer from '../components/footer';
+import { redirectTo } from '../utils/navigation';
 
 const Services = () => {
   const [seen, setSeen] = useState(false);
@@ -17,7 +18,7 @@ const Services = () => {
   const handleLogin = (e) => {
     e.preventDefault();
     togglePop();
-    window.location.href = '/cars';
+    redirectTo('/cars');
   };
 
   const sectionVariants = {

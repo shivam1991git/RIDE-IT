@@ -23,6 +23,7 @@ function BookingCar() {
     const [driver, setDriver] = useState(false);
     const [totalAmount, setTotalAmount] = useState(0);
     const [showModal, setShowModal] = useState(false);
+    const stripePublicKey = process.env.REACT_APP_STRIPE_PUBLIC_KEY;
 
     useEffect(() => {
         dispatch(getAllCars());
@@ -52,7 +53,7 @@ function BookingCar() {
         setTotalHours(values[1].diff(values[0], 'hours'));
     }
 
-    function onToken(token) {
+    function onToken(token = null) {
         const reqObj = {
             token,
             user: JSON.parse(localStorage.getItem('user'))._id,
@@ -97,13 +98,13 @@ function BookingCar() {
                             <button className='bt1 mt-2' onClick={() => { setShowModal(true) }}>See Booked TimeSlots</button>
                             {car.name && (
                                 <Modal
-                                    visible={showModal}
+                                    open={showModal}
                                     closable={false}
                                     footer={false}
                                     title='Booked Time Slots'
                                 >
                                     <div className='p-2'>
-                                        {car.bookedTimeSlot.filter(slot => slot.status === 'Pending').map((slot, index) => (
+                                        {car.bookedTimeSlot.filter(slot => slot.status !== 'Cancelled').map((slot, index) => (
                                             <button key={index} className='btn1 mt-2'>
                                                 {slot.from} - {slot.to}
                                             </button>
@@ -130,17 +131,23 @@ function BookingCar() {
                                 <p>Rent Per Hour: <b>{car.rentPerHour}</b></p>
                                 <Checkbox onChange={e => setDriver(e.target.checked)}>Driver Required</Checkbox>
                                 <h1>Total Amount: {totalAmount}</h1>
-                                <StripeCheckout
-                                    shippingAddress
-                                    token={onToken}
-                                    currency='inr'
-                                    amount={totalAmount * 100}
-                                    stripeKey=''
-                                >
-                                    <button className='btn1'>
+                                {stripePublicKey ? (
+                                    <StripeCheckout
+                                        shippingAddress
+                                        token={onToken}
+                                        currency='inr'
+                                        amount={totalAmount * 100}
+                                        stripeKey={stripePublicKey}
+                                    >
+                                        <button className='btn1'>
+                                            Book Now
+                                        </button>
+                                    </StripeCheckout>
+                                ) : (
+                                    <button className='btn1' onClick={() => onToken()}>
                                         Book Now
                                     </button>
-                                </StripeCheckout>
+                                )}
                             </div>
                         )}
                     </Col>

@@ -1,24 +1,33 @@
 const mongoose = require("mongoose");
 
-function connectDB(){
-    mongoose.connect('mongodb+srv://shivam:1%40Shivam@cluster0.r9cvxfe.mongodb.net/', 
-    {  
-        useUnifiedTopology: true,
-        useNewUrlParser: true
+async function connectDB() {
+    if (!process.env.MONGO_URI) {
+        console.error("MONGO_URI is missing in .env file");
+        process.exit(1);
+    }
 
-    })
+    const connection = mongoose.connection;
 
-    const connection = mongoose.connection
+    connection.on("connected", () => {
+        console.log("MongoDB Connected Successfully");
+    });
 
-    connection.on('connected', () =>{
-        console.log("Connection Successfull")
-    })
+    connection.on("error", (error) => {
+        console.error("MongoDB Connection Error:", error.message);
+    });
 
-    connection.on('error', () =>{
-        console.log("Connection error")
-    })
+    connection.on("disconnected", () => {
+        console.warn("MongoDB Disconnected");
+    });
+
+    try {
+        await mongoose.connect(process.env.MONGO_URI, {
+            dbName: process.env.MONGO_DB_NAME || "ride-it",
+        });
+    } catch (error) {
+        console.error("Failed to connect to MongoDB:", error.message);
+        process.exit(1);
+    }
 }
 
-connectDB ()
-
-module.exports = mongoose
+module.exports = { connectDB, mongoose };

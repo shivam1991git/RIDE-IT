@@ -1,5 +1,6 @@
 import { message } from 'antd';
 import axios from 'axios';
+import { redirectTo } from '../../utils/navigation';
 
 export const getAllCars =()=>async dispatch=>{
 
@@ -26,7 +27,7 @@ export const addCar = (reqObj) =>async dispatch=>{
         dispatch({type: 'LOADING', payload:false})
         message.success('New car Added successfull')
         setTimeout(() =>{
-            window.location.href='/admin'
+            redirectTo('/admin')
         }, 500)
 
     } catch (error) {
@@ -44,7 +45,7 @@ export const editCar = (reqObj) =>async dispatch=>{
         dispatch({type: 'LOADING', payload:false})
         message.success('Car Edited successfully')
         setTimeout(() =>{
-            window.location.href='/admin'
+            redirectTo('/admin')
         }, 500)
 
     } catch (error) {

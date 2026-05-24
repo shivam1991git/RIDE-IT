@@ -35,12 +35,12 @@ import DriverBookings from './pages/DriverBookings';
 function App() {
   return (
     <div className="App">
-      <BrowserRouter>
+      <BrowserRouter basename={process.env.PUBLIC_URL}>
         <Routes>
           <Route path="/" element={<ProtectedRoute component={Home} />} />
           <Route path="/login" element={<Login />} />
           <Route path="/adminlogin" element={<Adminlogin />} />
-          <Route path="/adminregister" element={< ProtectedAdminRoute component={AdminRegister} />} />
+          <Route path="/adminregister" element={<AdminRegister />} />
           <Route path="/register" element={<Register />} />
           <Route path="/driverlogin" element={<DriverLogin />} />
           <Route path="/driverregister" element={<DriverRegister />} />
@@ -67,7 +67,7 @@ function App() {
           <Route path="/adminfeedback" element={<ProtectedAdminRoute component={AdminFeedback} />} />
           <Route path="/adminbookings" element={<ProtectedAdminRoute component={AdminBookings} />} />
 
-          <Route path="/driverbookings" element={<ProtectedRoute component={DriverBookings} />} />
+          <Route path="/driverbookings" element={<ProtectedDriverRoute component={DriverBookings} />} />
         </Routes>
       </BrowserRouter>
     </div>

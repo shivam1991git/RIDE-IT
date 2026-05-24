@@ -8,7 +8,9 @@ const carSchema = new mongoose.Schema({
     bookedTimeSlot : [
         {
             from: {type : String, required: true},
-            to: {type : String, required: true}
+            to: {type : String, required: true},
+            status: {type : String, default: 'Pending'},
+            bookingId: {type: mongoose.Schema.Types.ObjectId, ref: 'bookings'}
         }
     ],
     rentPerHour : {type : Number, required: true}
