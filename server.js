@@ -10,6 +10,7 @@ const port = process.env.PORT || 5000;
 const allowedOrigins = [
     'http://localhost:3000',           // Local development
     'http://localhost:5000',           // Local development
+    'https://shivam1991git.github.io',
     'https://ride-it-web-app.vercel.app', // Update with your actual Vercel URL
     // Add more production URLs as needed
     process.env.FRONTEND_URL || '',    // From environment variable
