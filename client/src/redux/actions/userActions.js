@@ -19,7 +19,7 @@ export const userLogin = (reqObj) => async dispatch => {
 
     } catch (error) {
         console.log(error)
-        message.error('someting wrong')
+        message.error(error.response?.data?.message || 'Something went wrong')
         dispatch({ type: 'LOADING', payload: false })
 
     }

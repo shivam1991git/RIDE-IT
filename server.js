@@ -6,30 +6,53 @@ const { connectDB, mongoose } = require('./db');
 const app = express();
 const port = process.env.PORT || 5000;
 
-// ✅ CORS Configuration for Production
+if (!process.env.JWT_SECRET) {
+    console.error("JWT_SECRET is missing. Login cannot work without a token signing secret.");
+    process.exit(1);
+}
+
 const allowedOrigins = [
-    'http://localhost:3000',           // Local development
-    'http://localhost:5000',           // Local development
+    'http://localhost:3000',
+    'http://localhost:5000',
     'https://shivam1991git.github.io',
-    'https://ride-it-web-app.vercel.app', // Update with your actual Vercel URL
-    // Add more production URLs as needed
-    process.env.FRONTEND_URL || '',    // From environment variable
+    'https://ride-it-web-app.vercel.app',
+    ...(process.env.FRONTEND_URLS || process.env.FRONTEND_URL || '')
+        .split(',')
+        .map(origin => origin.trim())
+        .filter(Boolean),
 ];
 
+function isAllowedOrigin(origin) {
+    if (!origin) {
+        return true;
+    }
+
+    if (allowedOrigins.includes(origin)) {
+        return true;
+    }
+
+    try {
+        const { hostname } = new URL(origin);
+        return hostname === 'vercel.app' || hostname.endsWith('.vercel.app');
+    } catch (error) {
+        return false;
+    }
+}
+
 app.use(cors({
-    origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS policy'));
+    origin: (origin, callback) => {
+        if (isAllowedOrigin(origin)) {
+            return callback(null, true);
         }
+
+        return callback(null, false);
     },
-    credentials: true, // Allow cookies and auth headers
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
+app.options('*', cors());
 app.use(express.json());
 
 app.use('/api', (req, res, next) => {
@@ -53,31 +76,27 @@ app.get('/', (req, res) => res.send('Hello World!'));
 async function startServer() {
     try {
         await connectDB();
-        
+
         const server = app.listen(port, () => {
-            console.log(`🚀 Server running on port ${port}`);
+            console.log(`Server running on port ${port}`);
             console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
         });
 
-        // ✅ Graceful shutdown for production (Render, Heroku, etc.)
         process.on('SIGTERM', () => {
-            console.log('📍 SIGTERM received, closing server gracefully...');
+            console.log('SIGTERM received, closing server gracefully...');
             server.close(() => {
-                console.log('✅ Server closed');
                 mongoose.connection.close(() => {
-                    console.log('✅ Database connection closed');
+                    console.log('Server and database connection closed');
                     process.exit(0);
                 });
             });
         });
 
-        // Handle unhandled rejections
         process.on('unhandledRejection', (err) => {
-            console.error('❌ Unhandled Rejection:', err);
+            console.error('Unhandled Rejection:', err);
         });
-
     } catch (error) {
-        console.error('❌ Failed to start server:', error.message);
+        console.error('Failed to start server:', error.message);
         process.exit(1);
     }
 }
