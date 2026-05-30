@@ -1,5 +1,5 @@
 import React from 'react';
-import { Row, Col, Form, Input, DatePicker, Select } from 'antd';
+import { Row, Col, Form, Input, Select } from 'antd';
 import { useDispatch, useSelector } from 'react-redux';
 import { adminRegister } from '../redux/actions/adminActions';
 import Spinner from '../components/Spinner';

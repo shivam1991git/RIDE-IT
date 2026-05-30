@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import DefultLayout from '../components/DefultLayout';
 import { getAllCars } from '../redux/actions/carsActions';
@@ -6,12 +6,11 @@ import { Row, Col } from 'antd';
 import { Link } from 'react-router-dom';
 import Spinner from '../components/Spinner';
 import Footer from '../components/footer';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 
 const Choosecar = () => {
     const { cars } = useSelector(state => state.carsReducer);
     const { loading } = useSelector(state => state.alertsReducer);
-    const [totalCars, setTotalcars] = useState([]);
     const dispatch = useDispatch();
     const user = JSON.parse(localStorage.getItem('user'));
 

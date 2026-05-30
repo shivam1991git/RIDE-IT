@@ -53,7 +53,7 @@ const App = () => {
                     className='card1'
                     hoverable
                     style={{ marginBottom: '20px', backgroundColor: 'blue', height: '300px' }}
-                    cover={<img alt={`Card Image ${card.key}`} src={card.img} height='200px' />}
+                    cover={<img alt={card.label} src={card.img} height='200px' />}
                   >
                     <Link to={card.link} style={{ color: 'gold', display: 'block', textAlign: 'center', height: '100%' }}>
                       <h3>{card.label}</h3>

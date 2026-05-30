@@ -2,15 +2,12 @@ import React, { useState, useEffect } from 'react'
 import { useSelector, useDispatch } from 'react-redux';
 import DefultLayout from '../components/DefultLayout'
 import { deleteUser, getAllUsers } from '../redux/actions/userActions';
-import { Row, Col, DatePicker } from 'antd';
+import { Row, Col } from 'antd';
 import { Link } from 'react-router-dom'
 import Spinner from '../components/Spinner';
 import {Popconfirm } from 'antd';
 import Footer from '../components/footer';
 import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
-
-const { RangePicker } = DatePicker
-
 
 function AdminUser() {
   const { users } = useSelector(state => state.usersReducer)
@@ -41,13 +38,13 @@ function AdminUser() {
         </Col>
 
       </Row>
-      {loading == true && (<Spinner />)}
+      {loading === true && (<Spinner />)}
 
       <Row justify='center' gutter={16}>
         <Col lg={20} sm={24}>
 
           {totalUsers.map(user => {
-            return <Row justify='center' gutter={16} className='bs1 mt-4 text-left'>
+            return <Row justify='center' gutter={16} className='bs1 mt-4 text-left' key={user._id}>
               <Col lg={18} sm={24}>
 
 

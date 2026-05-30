@@ -2,14 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import DefaultLayout from '../components/DefultLayout';
 import { deleteDriver, getAllDrivers } from '../redux/actions/driverActions';
-import { Table, Button, Row, Col, DatePicker, message, Popconfirm } from 'antd';
+import { Table, Button, Row, Col, Popconfirm } from 'antd';
 import { Link } from 'react-router-dom';
 import Spinner from '../components/Spinner';
-import moment from 'moment';
 import Footer from '../components/footer';
 import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
-
-const { RangePicker } = DatePicker;
 
 function AdminDriver() {
     const { drivers } = useSelector(state => state.driversReducer);
@@ -30,7 +27,7 @@ function AdminDriver() {
             title: 'Full Name',
             dataIndex: 'fullName',
             key: 'fullName',
-            render: text => <a>{text}</a>,
+            render: text => <span>{text}</span>,
         },
         {
             title: 'Username',

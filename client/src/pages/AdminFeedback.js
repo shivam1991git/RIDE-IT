@@ -6,7 +6,7 @@ import Spinner from '../components/Spinner';
 
 const AdminFeedback = () => {
   const dispatch = useDispatch();
-  const { feedbacks, error } = useSelector(state => state.feedbackReducer);
+  const { feedbacks } = useSelector(state => state.feedbackReducer);
   const { loading } = useSelector(state => state.alertsReducer);
   const [totalFeedback, setTotalFeedback] = useState([]);
 

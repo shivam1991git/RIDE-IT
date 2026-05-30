@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import DefaultLayout from "../components/DefultLayout";
 import { Col, Row, Form, Input } from 'antd';
 import { useDispatch, useSelector } from 'react-redux';
-import { addUser, editUser, getAllUsers } from '../redux/actions/userActions';
+import { editUser, getAllUsers } from '../redux/actions/userActions';
 import { useParams } from 'react-router-dom';
 import Spinner from '../components/Spinner';
 import Footer from '../components/footer';

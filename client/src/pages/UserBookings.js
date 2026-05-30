@@ -8,7 +8,7 @@ import Footer from '../components/footer';
 
 function UserBookings() {
   const dispatch = useDispatch();
-  const { bookings } = useSelector(state => state.bookingsReducer);
+  const { bookings = [] } = useSelector(state => state.bookingsReducer);
   const { loading } = useSelector(state => state.alertsReducer);
 
   useEffect(() => {
@@ -86,7 +86,7 @@ function UserBookings() {
   ];
 
   // Sort bookings by date of booking in descending order
-  const sortedBookings = bookings
+  const sortedBookings = [...bookings]
   
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .map((booking) => ({

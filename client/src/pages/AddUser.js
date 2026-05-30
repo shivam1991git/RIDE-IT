@@ -1,6 +1,6 @@
 import React from 'react'
 import DefaultLayout from "../components/DefultLayout"
-import {Col, Row, Form, Input, Edit} from 'antd'
+import {Col, Row, Form, Input} from 'antd'
 import {useDispatch , useSelector} from 'react-redux'
 import {addUser} from '../redux/actions/userActions'
 import Spinner from '../components/Spinner'

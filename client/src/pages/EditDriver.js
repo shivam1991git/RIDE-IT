@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import DefaultLayout from "../components/DefultLayout";
-import { Col, Row, Form, Input, DatePicker, Select  } from 'antd';
+import { Col, Row, Form, Input, Select  } from 'antd';
 import { useDispatch, useSelector } from 'react-redux';
 import { editDriver, getAllDrivers } from '../redux/actions/driverActions';
 import { useParams } from 'react-router-dom';
@@ -38,15 +38,6 @@ function EditDriver({ match }) {
         values._id = driver._id
         dispatch(editDriver(values));
         console.log(values);
-    }
-
-    // Custom date validator
-    function validateDate(_, value) {
-        const age = value ? new Date().getFullYear() - value.year() : 0;
-        if (age >= 18 && age <= 50) {
-            return Promise.resolve();
-        }
-        return Promise.reject(new Error('Age must be between 18 and 50!'));
     }
 
     return (
