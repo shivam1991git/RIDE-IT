@@ -11,11 +11,11 @@ import DirectionsCarRounded from '@mui/icons-material/DirectionsCarRounded';
 import StarRounded from '@mui/icons-material/StarRounded';
 import TodayRounded from '@mui/icons-material/TodayRounded';
 import InboxRounded from '@mui/icons-material/InboxRounded';
-import { CardSkeleton, EmptyState, RouteLine, StatCard, StatusChip } from '../../components/ui';
+import { CardSkeleton, EmptyState, RideExtras, RouteLine, StatCard, StatusChip } from '../../components/ui';
 import BarChart, { lastNDays } from '../../components/BarChart';
 import CarImage from '../../components/CarImage';
 import { get, patch, post } from '../../lib/api';
-import { dateTime, km, money } from '../../lib/format';
+import { dateTime, km, money, driverEarning } from '../../lib/format';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRealtime } from '../../providers/RealtimeProvider';
 import { useToast } from '../../providers/ToastProvider';
@@ -45,7 +45,12 @@ function RequestCard({ booking, onAccept, busy }) {
             {booking.pickupDistanceKm !== undefined && <Chip size="small" variant="outlined" label={`${km(booking.pickupDistanceKm)} to pickup`} />}
             <Typography variant="caption" color="text.secondary">{booking.user?.fullName}{booking.user?.rating?.average ? ` · ${booking.user.rating.average}★` : ''}</Typography>
           </Stack>
-          {ride ? <RouteLine pickup={booking.pickup} drop={booking.drop} dense /> : (
+          {ride ? (
+            <>
+              <RouteLine pickup={booking.pickup} drop={booking.drop} stops={booking.stops || []} dense />
+              <RideExtras booking={booking} dense />
+            </>
+          ) : (
             <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
               <CarImage car={booking.car} width={72} />
               <Box>
@@ -56,7 +61,7 @@ function RequestCard({ booking, onAccept, busy }) {
           )}
         </Box>
         <Stack direction={{ xs: 'row', sm: 'column' }} spacing={1} sx={{ alignItems: { xs: 'center', sm: 'flex-end' }, justifyContent: 'space-between' }}>
-          <Typography variant="h5" sx={{ fontVariantNumeric: 'tabular-nums' }}>{money(booking.totalAmount)}</Typography>
+          <Typography variant="h5" sx={{ fontVariantNumeric: 'tabular-nums' }}>{money(driverEarning(booking))}</Typography>
           <Button variant="contained" onClick={() => onAccept(booking)} disabled={busy}>Accept</Button>
         </Stack>
       </Stack>
@@ -190,7 +195,7 @@ export default function DriverHome() {
                       <Typography variant="caption" color="text.secondary">{dateTime(b.updatedAt)}</Typography>
                     </Box>
                     <StatusChip status={b.status} />
-                    <Typography variant="subtitle2">{money(b.totalAmount)}</Typography>
+                    <Typography variant="subtitle2">{money(driverEarning(b))}</Typography>
                   </Stack>
                 ))}
               </Stack>

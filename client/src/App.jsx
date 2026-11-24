@@ -22,6 +22,7 @@ const Support = lazy(() => import('./pages/Support'));
 const DriverHome = lazy(() => import('./pages/driver/DriverHome'));
 const DriverJob = lazy(() => import('./pages/driver/DriverJob'));
 const AdminApp = lazy(() => import('./pages/admin/AdminApp'));
+const SharedTrip = lazy(() => import('./pages/SharedTrip'));
 const ChatWidget = lazy(() => import('./components/chat/ChatWidget'));
 
 const rider = el => <RequireRole roles={['customer']}>{el}</RequireRole>;
@@ -62,6 +63,7 @@ export default function App() {
 
             <Route path="/account" element={signedIn(<Page><Account /></Page>)} />
             <Route path="/support" element={<Page><Support /></Page>} />
+            <Route path="/share/:token" element={<Page><SharedTrip /></Page>} />
 
             <Route path="/driver" element={driver(<Page><DriverHome /></Page>)} />
             <Route path="/driver/jobs/:id" element={driver(<Page><DriverJob /></Page>)} />

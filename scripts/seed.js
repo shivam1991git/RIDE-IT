@@ -9,6 +9,7 @@ const { User, Driver, Admin } = require('../src/models/accounts');
 const Car = require('../src/models/Car');
 const { Booking } = require('../src/models/Booking');
 const { Feedback } = require('../src/models/misc');
+const { Promo } = require('../src/models/Promo');
 const { hashPassword } = require('../src/services/auth');
 const fare = require('../src/services/fare');
 const geo = require('../src/services/geo');
@@ -92,10 +93,20 @@ async function main() {
         { appRating: 4, additionalComments: 'Would love UPI support.', userId: customers[1]._id },
     ]);
 
+    const monthAhead = new Date(Date.now() + 30 * 24 * 3600 * 1000);
+    await Promo.create([
+        { code: 'WELCOME50', description: 'Half off your ride, up to ₹100', kind: 'percent', value: 50, maxDiscount: 100, validUntil: monthAhead },
+        { code: 'DARSHAN100', description: '₹100 off Darshan Circuits and longer trips', kind: 'flat', value: 100, minFare: 400, perUserLimit: 3, validUntil: monthAhead },
+        { code: 'AUTO20', description: '₹20 off any auto ride', kind: 'flat', value: 20, categories: ['auto'], perUserLimit: 5, validUntil: monthAhead },
+        { code: 'STAFFONLY', description: 'Internal test code (hidden from Offers)', kind: 'percent', value: 10, public: false, validUntil: monthAhead },
+    ]);
+    await User.updateOne({ username: 'asha' }, { $set: { trustedContact: { name: 'Meera (sister)', phone: '9811122233' } } });
+
     console.log(`Seeded synthetic demo data. Password for every demo account: ${DEMO_PASSWORD}
   admin    -> admin
-  riders   -> asha, rohan, priya
-  drivers  -> ravi (mini, online), sunil (sedan), imran (auto), manoj (suv), deepak (pending approval)`);
+  riders   -> asha (has a trusted contact), rohan, priya
+  drivers  -> ravi (mini, online), sunil (sedan), imran (auto), manoj (suv), deepak (pending approval)
+  promos   -> WELCOME50, DARSHAN100, AUTO20 (public), STAFFONLY (hidden)`);
 }
 
 main()

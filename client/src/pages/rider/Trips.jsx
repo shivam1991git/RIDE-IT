@@ -7,7 +7,7 @@ import { CardSkeleton, EmptyState, PageHeader, RouteLine, StatusChip } from '../
 import VehicleArt from '../../components/VehicleArt';
 import CarImage from '../../components/CarImage';
 import { get } from '../../lib/api';
-import { dateTime, money } from '../../lib/format';
+import { dateTime, friendlyDateTime, money } from '../../lib/format';
 
 function TripCard({ booking }) {
   return (
@@ -19,11 +19,13 @@ function TripCard({ booking }) {
           </Box>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
-              <Typography variant="caption" color="text.secondary">{dateTime(booking.type === 'rental' ? booking.start : booking.createdAt)}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {booking.status === 'scheduled' ? `Pickup ${friendlyDateTime(booking.scheduledFor)}` : dateTime(booking.type === 'rental' ? booking.start : booking.createdAt)}
+              </Typography>
               <StatusChip status={booking.status} />
             </Stack>
             {booking.type === 'ride'
-              ? <RouteLine pickup={booking.pickup} drop={booking.drop} dense />
+              ? <RouteLine pickup={booking.pickup} drop={booking.drop} stops={booking.stops || []} dense />
               : <Typography variant="subtitle1" noWrap>{booking.car?.name} · {booking.totalHours} h rental</Typography>}
           </Box>
           <Typography variant="h6" sx={{ fontVariantNumeric: 'tabular-nums' }}>{money(booking.totalAmount)}</Typography>

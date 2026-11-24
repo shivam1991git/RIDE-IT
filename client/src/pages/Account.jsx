@@ -8,7 +8,7 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import { PageHeader } from '../components/ui';
 import PlaceSearch from '../components/PlaceSearch';
 import { PasswordField, rules } from './auth/fields';
-import { del, fieldErrors, patch, post } from '../lib/api';
+import { api, del, fieldErrors, patch, post } from '../lib/api';
 import { useAuth } from '../providers/AuthProvider';
 import { useToast } from '../providers/ToastProvider';
 
@@ -81,6 +81,35 @@ function SavedPlaces() {
   );
 }
 
+function TrustedContact() {
+  const { account, setAccount } = useAuth();
+  const toast = useToast();
+  const current = account.trustedContact?.phone ? account.trustedContact : null;
+  const [form, setForm] = useState({ name: current?.name || '', phone: current?.phone || '' });
+  const [errors, setErrors] = useState({});
+  const save = useMutation({
+    mutationFn: () => api('/me/trusted-contact', { method: 'PUT', body: form }),
+    onSuccess: ({ trustedContact }) => { setAccount({ ...account, trustedContact }); setErrors({}); toast.success('Trusted contact saved'); },
+    onError: error => { setErrors(fieldErrors(error)); toast.error(error.message); },
+  });
+  const remove = useMutation({
+    mutationFn: () => del('/me/trusted-contact'),
+    onSuccess: () => { setAccount({ ...account, trustedContact: undefined }); setForm({ name: '', phone: '' }); toast.success('Trusted contact removed'); },
+  });
+  return (
+    <Stack spacing={2} component="form" onSubmit={e => { e.preventDefault(); save.mutate(); }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
+        <TextField label="Name" placeholder="Mum" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} error={Boolean(errors.name)} helperText={errors.name} slotProps={{ htmlInput: { maxLength: 60 } }} />
+        <TextField label="Mobile number" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} error={Boolean(errors.phone)} helperText={errors.phone} slotProps={{ htmlInput: { inputMode: 'tel', maxLength: 15 } }} />
+      </Box>
+      <Stack direction="row" spacing={1.5}>
+        <Button type="submit" variant="contained" disabled={!form.name.trim() || !form.phone.trim() || save.isPending}>{current ? 'Update contact' : 'Save contact'}</Button>
+        {current && <Button color="error" onClick={() => remove.mutate()} disabled={remove.isPending}>Remove</Button>}
+      </Stack>
+    </Stack>
+  );
+}
+
 function Security() {
   const toast = useToast();
   const { logout } = useAuth();
@@ -118,6 +147,11 @@ export default function Account() {
       <Stack spacing={2.5}>
         <Section title="Profile"><ProfileForm /></Section>
         {account.role === 'customer' && <Section title="Saved places" subtitle="Shown first when you search for a pickup or destination."><SavedPlaces /></Section>}
+        {account.role === 'customer' && (
+          <Section title="Trusted contact" subtitle="During an SOS you can text this person your live trip link in one tap.">
+            <TrustedContact />
+          </Section>
+        )}
         {account.role === 'driver' && vehicle && (
           <Section title="Vehicle" subtitle="Contact support to change your registered vehicle.">
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>

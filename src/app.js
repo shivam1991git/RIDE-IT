@@ -24,7 +24,7 @@ function createApp() {
     app.use(cors({
         origin: (origin, callback) => callback(null, !origin || isAllowedOrigin(origin)),
         credentials: true,
-        methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
         allowedHeaders: ['Content-Type', 'Authorization'],
         maxAge: 600,
     }));

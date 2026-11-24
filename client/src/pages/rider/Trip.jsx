@@ -10,17 +10,155 @@ import { alpha } from '@mui/material/styles';
 import CallRounded from '@mui/icons-material/CallRounded';
 import StarRounded from '@mui/icons-material/StarRounded';
 import CreditCardRounded from '@mui/icons-material/CreditCardRounded';
+import EventRounded from '@mui/icons-material/EventRounded';
+import ShareRounded from '@mui/icons-material/ShareRounded';
+import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
+import SosRounded from '@mui/icons-material/SosRounded';
+import SmsRounded from '@mui/icons-material/SmsRounded';
 import MapLayout from '../../components/MapLayout';
 import CarImage from '../../components/CarImage';
 import { CardSkeleton, FareBreakdown, RouteLine, StatusChip } from '../../components/ui';
-import { get, post } from '../../lib/api';
-import { dateTime, km, minutes } from '../../lib/format';
+import { del, get, post } from '../../lib/api';
+import { dateTime, friendlyDateTime, km, minutes, PREFERENCES } from '../../lib/format';
+import { useAuth } from '../../providers/AuthProvider';
 import { useRealtime } from '../../providers/RealtimeProvider';
 import { useToast } from '../../providers/ToastProvider';
 
 const PaymentDialog = lazy(() => import('../../components/PaymentDialog'));
 
-const LIVE = ['requested', 'accepted', 'arrived', 'in_progress', 'pending_driver'];
+const LIVE = ['scheduled', 'requested', 'accepted', 'arrived', 'in_progress', 'pending_driver'];
+const SHAREABLE = ['scheduled', 'requested', 'accepted', 'arrived', 'in_progress'];
+const SOS_STATUSES = ['accepted', 'arrived', 'in_progress'];
+
+function ScheduledCard({ booking }) {
+  return (
+    <Stack direction="row" spacing={2} sx={{ alignItems: 'center', p: 2, borderRadius: 4, bgcolor: theme => alpha(theme.palette.info.main, 0.1) }}>
+      <EventRounded color="info" sx={{ fontSize: 36 }} />
+      <Box>
+        <Typography variant="subtitle1">Pickup {friendlyDateTime(booking.scheduledFor)}</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Your fare is locked. We start finding your driver 15 minutes before pickup and will notify you. Cancel free any time before then.
+        </Typography>
+      </Box>
+    </Stack>
+  );
+}
+
+function RidePreferences({ booking }) {
+  const prefs = PREFERENCES.filter(([key]) => booking.preferences?.[key]);
+  if (!prefs.length && !booking.noteToDriver) return null;
+  return (
+    <Stack spacing={1}>
+      {prefs.length > 0 && <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>{prefs.map(([key, label]) => <Chip key={key} size="small" variant="outlined" label={label} />)}</Stack>}
+      {booking.noteToDriver && <Typography variant="body2" color="text.secondary">Note to driver: “{booking.noteToDriver}”</Typography>}
+    </Stack>
+  );
+}
+
+function ShareTrip({ booking }) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['booking', booking._id] });
+  const start = useMutation({
+    mutationFn: () => post(`/bookings/${booking._id}/share`),
+    onSuccess: async ({ url }) => {
+      refresh();
+      if (navigator.share) {
+        await navigator.share({ title: 'Follow my RIDE-IT trip', url }).catch(() => {});
+      } else {
+        await copy(url);
+      }
+    },
+    onError: error => toast.error(error.message),
+  });
+  const stop = useMutation({
+    mutationFn: () => del(`/bookings/${booking._id}/share`),
+    onSuccess: () => { toast.success('Trip link turned off'); refresh(); },
+    onError: error => toast.error(error.message),
+  });
+  async function copy(url) {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Trip link copied. Send it to family or friends.');
+    } catch {
+      toast.info(url);
+    }
+  }
+  if (!SHAREABLE.includes(booking.status)) return null;
+  if (!booking.sharing) {
+    return <Button variant="outlined" startIcon={<ShareRounded />} onClick={() => start.mutate()} disabled={start.isPending}>Share live trip</Button>;
+  }
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', p: 1.25, borderRadius: 3, border: 1, borderColor: 'divider' }}>
+      <ShareRounded color="secondary" fontSize="small" />
+      <Typography variant="body2" sx={{ flex: 1 }}>Live trip link is on</Typography>
+      <Button size="small" startIcon={<ContentCopyRounded />} onClick={() => copy(booking.shareUrl)}>Copy</Button>
+      <Button size="small" color="inherit" onClick={() => stop.mutate()} disabled={stop.isPending}>Turn off</Button>
+    </Stack>
+  );
+}
+
+function currentPosition() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) return resolve(undefined);
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => resolve(undefined),
+      { timeout: 4000, maximumAge: 60000 },
+    );
+    return undefined;
+  });
+}
+
+function SosButton({ booking }) {
+  const [open, setOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const sos = useMutation({
+    mutationFn: async () => post(`/bookings/${booking._id}/sos`, { location: await currentPosition() }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['booking', booking._id] }),
+    onError: error => toast.error(error.message),
+  });
+  if (!SOS_STATUSES.includes(booking.status)) return null;
+  const result = sos.data;
+  const smsBody = result ? encodeURIComponent(`I need help. Follow my RIDE-IT trip live: ${result.shareUrl}`) : '';
+  return (
+    <>
+      <Button color="error" variant="contained" startIcon={<SosRounded />} onClick={() => setOpen(true)} sx={{ fontWeight: 700 }}>Emergency SOS</Button>
+      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ color: 'error.main' }}>{result ? 'Help is on the way' : 'Need urgent help?'}</DialogTitle>
+        <DialogContent>
+          {!result ? (
+            <Typography color="text.secondary">
+              This alerts the RIDE-IT safety team right away with your trip and location, and turns on live trip sharing.
+              If you are in immediate danger, call 112 first.
+            </Typography>
+          ) : (
+            <Stack spacing={1.5}>
+              <Alert severity="success">Our safety team has been alerted and will contact you.</Alert>
+              <Button fullWidth color="error" variant="contained" size="large" startIcon={<CallRounded />} href={`tel:${result.emergencyNumber}`}>Call {result.emergencyNumber} (emergency)</Button>
+              {result.trustedContact ? (
+                <Button fullWidth variant="outlined" startIcon={<SmsRounded />} href={`sms:${result.trustedContact.phone}?body=${smsBody}`}>Text {result.trustedContact.name} your live trip</Button>
+              ) : (
+                <Typography variant="caption" color="text.secondary">Tip: add a trusted contact in your profile to message them in one tap.</Typography>
+              )}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          {!result ? (
+            <>
+              <Button href="tel:112" color="error">Call 112</Button>
+              <Box sx={{ flex: 1 }} />
+              <Button onClick={() => setOpen(false)}>Cancel</Button>
+              <Button color="error" variant="contained" onClick={() => sos.mutate()} disabled={sos.isPending}>{sos.isPending ? 'Sending…' : 'Send SOS'}</Button>
+            </>
+          ) : <Button onClick={() => setOpen(false)}>Close</Button>}
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+}
 const RIDE_STEPS = [['requested', 'Requested'], ['accepted', 'Driver assigned'], ['arrived', 'Driver arrived'], ['in_progress', 'On trip'], ['completed', 'Completed']];
 
 function Searching() {
@@ -165,7 +303,8 @@ function PaymentRow({ booking }) {
 }
 
 function RideDetails({ booking }) {
-  const active = ['requested', 'accepted', 'arrived'].includes(booking.status);
+  const active = ['scheduled', 'requested', 'accepted', 'arrived'].includes(booking.status);
+  const isRider = useAuth().role === 'customer';
   const stepIndex = RIDE_STEPS.findIndex(([status]) => status === booking.status);
   return (
     <Stack spacing={2.5}>
@@ -173,10 +312,19 @@ function RideDetails({ booking }) {
         <Typography variant="h4" component="h1">Your ride</Typography>
         <StatusChip status={booking.status} />
       </Stack>
+      {booking.status === 'scheduled' && <ScheduledCard booking={booking} />}
       {booking.status === 'requested' && <Searching />}
       {['accepted', 'arrived', 'in_progress'].includes(booking.status) && <DriverCard driver={booking.driver} />}
-      {booking.pin && ['requested', 'accepted', 'arrived'].includes(booking.status) && <Pin pin={booking.pin} />}
-      {booking.status === 'expired' && <Alert severity="warning">No driver accepted in time. Please try again — drivers are more available a few minutes later.</Alert>}
+      {booking.pin && ['scheduled', 'requested', 'accepted', 'arrived'].includes(booking.status) && <Pin pin={booking.pin} />}
+      {isRider && <SosButton booking={booking} />}
+      {isRider && <ShareTrip booking={booking} />}
+      {booking.status === 'expired' && (
+        <Alert severity="warning">
+          {booking.cancellation?.by === 'system' && booking.cancellation.reason
+            ? `This scheduled ride could not start: ${booking.cancellation.reason.toLowerCase()}.`
+            : 'No driver accepted in time. Please try again — drivers are more available a few minutes later.'}
+        </Alert>
+      )}
       {booking.status === 'cancelled' && <Alert severity="info">This ride was cancelled{booking.cancellation?.by === 'admin' ? ' by our support team' : ''}.</Alert>}
       {stepIndex >= 0 && (
         <Stepper activeStep={booking.status === 'completed' ? RIDE_STEPS.length : stepIndex} orientation="horizontal" alternativeLabel sx={{ '& .MuiStepLabel-label': { fontSize: 11, mt: 0.5 } }}>
@@ -184,18 +332,20 @@ function RideDetails({ booking }) {
         </Stepper>
       )}
       <Divider />
-      <RouteLine pickup={booking.pickup} drop={booking.drop} />
-      <Stack direction="row" spacing={1}>
+      <RouteLine pickup={booking.pickup} drop={booking.drop} stops={booking.stops || []} />
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
         <Chip size="small" label={km(booking.distanceKm)} />
         <Chip size="small" label={`~${minutes(booking.durationMin)}`} />
         <Chip size="small" label={booking.category?.toUpperCase()} variant="outlined" />
+        {booking.promo?.code && <Chip size="small" color="success" variant="outlined" label={`${booking.promo.code} applied`} />}
       </Stack>
+      <RidePreferences booking={booking} />
       <FareBreakdown lines={booking.fareBreakdown} total={booking.totalAmount} />
       <PaymentRow booking={booking} />
       {booking.status === 'completed' && booking.driver && <RateDriver booking={booking} />}
       {active && <CancelButton booking={booking} />}
       {['completed', 'cancelled', 'expired'].includes(booking.status) && (
-        <Button variant="contained" component={RouterLink} to="/ride" state={{ pickup: booking.pickup, drop: booking.drop }}>Book again</Button>
+        <Button variant="contained" component={RouterLink} to="/ride" state={{ pickup: booking.pickup, drop: booking.drop, stops: booking.stops }}>Book again</Button>
       )}
     </Stack>
   );
@@ -247,7 +397,7 @@ export default function Trip() {
   const { booking } = data;
   if (booking.type === 'rental') return <RentalDetails booking={booking} />;
   return (
-    <MapLayout map={{ pickup: booking.pickup, drop: booking.drop, route: booking.routeGeometry, animated: ['requested', 'accepted', 'arrived', 'in_progress'].includes(booking.status) }}>
+    <MapLayout map={{ pickup: booking.pickup, drop: booking.drop, stops: booking.stops || [], route: booking.routeGeometry, animated: ['requested', 'accepted', 'arrived', 'in_progress'].includes(booking.status) }}>
       <RideDetails booking={booking} />
     </MapLayout>
   );

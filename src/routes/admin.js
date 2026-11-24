@@ -3,6 +3,8 @@ const { accountModel, CASE_INSENSITIVE } = require('../models/accounts');
 const { Booking, ALL_STATUSES } = require('../models/Booking');
 const Car = require('../models/Car');
 const { FareConfig, Feedback, SupportTicket, AuditLog } = require('../models/misc');
+const { Promo } = require('../models/Promo');
+const promos = require('../services/promos');
 const { requireAuth } = require('../middleware/auth');
 const { validate, idParams } = require('../middleware/common');
 const { transition } = require('../services/bookings');
@@ -256,6 +258,64 @@ router.patch('/fares/:key', validate({
     res.json({ item });
 }));
 
+// ---------- Promo codes ----------
+
+const promoBody = z.object({
+    code: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{3,20}$/, 'Code must be 3-20 letters or digits'),
+    description: z.string().trim().max(160).default(''),
+    kind: z.enum(['percent', 'flat']),
+    value: z.number().positive('Value must be more than 0'),
+    maxDiscount: z.number().min(0).default(0),
+    minFare: z.number().min(0).default(0),
+    categories: z.array(z.string().regex(/^[a-z]{2,20}$/)).max(10).default([]),
+    validFrom: v.isoDate('Valid from').optional(),
+    validUntil: v.isoDate('Valid until'),
+    usageLimit: z.number().int().min(0).default(0),
+    perUserLimit: z.number().int().min(1).max(20).default(1),
+    public: z.boolean().default(true),
+    active: z.boolean().default(true),
+});
+
+function checkPromo(promo) {
+    if (promo.kind === 'percent' && promo.value > 90) throw badRequest('A percentage discount can be at most 90%');
+    if (promo.kind === 'flat' && promo.value > 5000) throw badRequest('A flat discount can be at most ₹5000');
+    const from = promo.validFrom ? new Date(promo.validFrom) : new Date();
+    if (new Date(promo.validUntil) <= from) throw badRequest('"Valid until" must be after "valid from"');
+}
+
+router.get('/promos', asyncHandler(async (req, res) => {
+    res.json({ items: await Promo.find().sort({ createdAt: -1 }).limit(100) });
+}));
+
+router.post('/promos', validate({ body: promoBody }), asyncHandler(async (req, res) => {
+    checkPromo(req.body);
+    const item = await Promo.create(req.body).catch(promos.assertUniqueCodeError);
+    await audit(req, 'promo.create', 'promo', item._id, { code: item.code });
+    res.status(201).json({ item });
+}));
+
+// Remembers which fields the client actually sent, before validation fills in defaults.
+const rememberSentKeys = (req, res, next) => {
+    req.sentKeys = new Set(Object.keys(req.body || {}));
+    next();
+};
+
+router.patch('/promos/:id', rememberSentKeys, validate({
+    params: idParams,
+    // The code itself is fixed once created; riders may already have it.
+    body: promoBody.omit({ code: true }).partial(),
+}), asyncHandler(async (req, res) => {
+    const current = await Promo.findById(req.params.id).lean();
+    if (!current) throw notFound('Promo not found');
+    // Defaults from the create schema must not overwrite stored values on a partial update.
+    const changes = Object.fromEntries(Object.entries(req.body).filter(([key]) => req.sentKeys.has(key)));
+    if (!Object.keys(changes).length) throw badRequest('Nothing to update');
+    checkPromo({ ...current, ...changes });
+    const item = await Promo.findByIdAndUpdate(req.params.id, { $set: changes }, { new: true, runValidators: true });
+    await audit(req, 'promo.update', 'promo', item._id, changes);
+    res.json({ item });
+}));
+
 // ---------- Feedback, support, audit ----------
 
 router.get('/feedback', asyncHandler(async (req, res) => {
@@ -273,7 +333,15 @@ router.get('/support', validate({ query: listQuery }), asyncHandler(async (req, 
     const { page, limit, skip } = paginate(req.validQuery);
     const filter = status ? { status } : {};
     const [items, total] = await Promise.all([
-        SupportTicket.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+        // Urgent (SOS) tickets that are still open always come first.
+        SupportTicket.aggregate([
+            { $match: filter },
+            { $addFields: { _urgentOpen: { $cond: [{ $and: [{ $eq: ['$priority', 'urgent'] }, { $ne: ['$status', 'resolved'] }] }, 1, 0] } } },
+            { $sort: { _urgentOpen: -1, createdAt: -1 } },
+            { $skip: skip },
+            { $limit: limit },
+            { $project: { _urgentOpen: 0, __v: 0 } },
+        ]),
         SupportTicket.countDocuments(filter),
     ]);
     res.json({ items, page, limit, total });

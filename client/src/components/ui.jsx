@@ -1,7 +1,7 @@
 // Small shared building blocks used across pages.
 import { Box, Card, Chip, Skeleton, Stack, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { STATUS } from '../lib/format';
+import { friendlyDateTime, PREFERENCES, STATUS } from '../lib/format';
 
 export function StatusChip({ status, size = 'small' }) {
   const meta = STATUS[status] || { label: status, tone: 'default' };
@@ -74,8 +74,10 @@ export function FareBreakdown({ lines, total }) {
     <Stack spacing={0.75}>
       {lines?.map(line => (
         <Stack key={line.label} direction="row" sx={{ justifyContent: 'space-between' }}>
-          <Typography variant="body2" color="text.secondary">{line.label}</Typography>
-          <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>₹{line.amount.toFixed(2)}</Typography>
+          <Typography variant="body2" color={line.amount < 0 ? 'success.main' : 'text.secondary'}>{line.label}</Typography>
+          <Typography variant="body2" color={line.amount < 0 ? 'success.main' : undefined} sx={{ fontVariantNumeric: 'tabular-nums' }}>
+            {line.amount < 0 ? '−' : ''}₹{Math.abs(line.amount).toFixed(2)}
+          </Typography>
         </Stack>
       ))}
       <Stack direction="row" sx={{ justifyContent: 'space-between', pt: 1, borderTop: 1, borderColor: 'divider' }}>
@@ -86,18 +88,55 @@ export function FareBreakdown({ lines, total }) {
   );
 }
 
-export function RouteLine({ pickup, drop, dense }) {
+// What the driver needs to know beyond the route: pickup time for scheduled
+// rides, waiting at stops, rider preferences and their note.
+export function RideExtras({ booking, dense }) {
+  const prefs = PREFERENCES.filter(([key]) => booking.preferences?.[key]);
+  const waitMin = (booking.stops || []).reduce((sum, stop) => sum + (stop.waitMin || 0), 0);
+  if (!prefs.length && !booking.noteToDriver && !waitMin && !booking.scheduledFor) return null;
   return (
-    <Stack direction="row" spacing={1.5} sx={{ minWidth: 0 }}>
-      <Stack sx={{ alignItems: 'center', pt: 0.75 }}>
-        <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: 'secondary.main' }} />
-        <Box sx={{ width: 2, flex: 1, minHeight: dense ? 14 : 22, my: 0.5, bgcolor: 'divider' }} />
-        <Box sx={{ width: 9, height: 9, borderRadius: '2px', bgcolor: 'primary.main' }} />
+    <Stack spacing={0.75} sx={{ mt: dense ? 1 : 0 }}>
+      <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.75 }}>
+        {booking.scheduledFor && <Chip size="small" color="info" variant="outlined" label={`Pickup ${friendlyDateTime(booking.scheduledFor)}`} />}
+        {waitMin > 0 && <Chip size="small" variant="outlined" label={`Wait ${waitMin} min at stops`} />}
+        {prefs.map(([key, label]) => <Chip key={key} size="small" label={label} />)}
       </Stack>
-      <Stack spacing={dense ? 0.75 : 1.5} sx={{ minWidth: 0 }}>
-        <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>{pickup?.name}</Typography>
-        <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>{drop?.name}</Typography>
-      </Stack>
+      {booking.noteToDriver && (
+        <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }} noWrap={dense}>“{booking.noteToDriver}”</Typography>
+      )}
+    </Stack>
+  );
+}
+
+// Pickup → (stops) → drop, as a vertical timeline. Dense mode collapses stops into a count.
+export function RouteLine({ pickup, drop, stops = [], dense }) {
+  const rows = [{ kind: 'pickup', place: pickup }];
+  if (dense && stops.length) rows.push({ kind: 'stop', label: `${stops.length} stop${stops.length > 1 ? 's' : ''}` });
+  else stops.forEach(stop => rows.push({ kind: 'stop', place: stop }));
+  rows.push({ kind: 'drop', place: drop });
+  const dot = kind => ({
+    width: 9, height: 9, flexShrink: 0,
+    borderRadius: kind === 'drop' ? '2px' : '50%',
+    bgcolor: kind === 'pickup' ? 'secondary.main' : kind === 'drop' ? 'primary.main' : 'text.secondary',
+  });
+  return (
+    <Stack sx={{ minWidth: 0 }}>
+      {rows.map((row, index) => (
+        <Stack key={`${row.kind}-${index}`} direction="row" spacing={1.5} sx={{ minWidth: 0 }}>
+          <Stack sx={{ alignItems: 'center', pt: 0.75 }}>
+            <Box sx={dot(row.kind)} />
+            {index < rows.length - 1 && <Box sx={{ width: 2, flex: 1, minHeight: dense ? 10 : 16, my: 0.5, bgcolor: 'divider' }} />}
+          </Stack>
+          <Box sx={{ minWidth: 0, pb: index < rows.length - 1 ? (dense ? 0.5 : 1) : 0 }}>
+            <Typography variant="body2" noWrap sx={{ fontWeight: row.kind === 'stop' ? 500 : 600, color: row.kind === 'stop' ? 'text.secondary' : undefined }}>
+              {row.label || row.place?.name}
+            </Typography>
+            {!dense && row.kind === 'stop' && row.place?.waitMin > 0 && (
+              <Typography variant="caption" color="text.secondary">Driver waits {row.place.waitMin} min</Typography>
+            )}
+          </Box>
+        </Stack>
+      ))}
     </Stack>
   );
 }

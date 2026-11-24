@@ -29,6 +29,10 @@ function requireApproved(driver) {
     }
 }
 
+// Promo discounts are funded by RIDE-IT, not the driver: the driver earns the
+// fare before discount even though the rider pays less.
+const EARNING = { $add: ['$totalAmount', { $ifNull: ['$promo.discount', 0] }] };
+
 router.get('/summary', asyncHandler(async (req, res) => {
     const driver = await currentDriver(req);
     const id = new mongoose.Types.ObjectId(req.auth.id);
@@ -42,17 +46,17 @@ router.get('/summary', asyncHandler(async (req, res) => {
             $group: {
                 _id: null,
                 trips: { $sum: 1 },
-                earnings: { $sum: '$totalAmount' },
-                todayEarnings: { $sum: { $cond: [{ $gte: ['$updatedAt', startOfDay] }, '$totalAmount', 0] } },
+                earnings: { $sum: EARNING },
+                todayEarnings: { $sum: { $cond: [{ $gte: ['$updatedAt', startOfDay] }, EARNING, 0] } },
                 todayTrips: { $sum: { $cond: [{ $gte: ['$updatedAt', startOfDay] }, 1, 0] } },
-                weekEarnings: { $sum: { $cond: [{ $gte: ['$updatedAt', weekAgo] }, '$totalAmount', 0] } },
+                weekEarnings: { $sum: { $cond: [{ $gte: ['$updatedAt', weekAgo] }, EARNING, 0] } },
                 distanceKm: { $sum: { $ifNull: ['$distanceKm', 0] } },
             },
         },
     ]);
     const daily = await Booking.aggregate([
         { $match: { driver: id, status: 'completed', updatedAt: { $gte: weekAgo } } },
-        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$updatedAt', timezone: 'Asia/Kolkata' } }, earnings: { $sum: '$totalAmount' }, trips: { $sum: 1 } } },
+        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$updatedAt', timezone: 'Asia/Kolkata' } }, earnings: { $sum: EARNING }, trips: { $sum: 1 } } },
         { $sort: { _id: 1 } },
     ]);
     const active = await Booking.findOne({ driver: id, activeDriver: true }).select('_id').lean();
