@@ -1,34 +1,72 @@
 # RIDE-IT
 
-Point-to-point rides and hourly car rentals across Varanasi. Riders book Auto, Mini, Sedan or SUV rides at server-computed fares; verified drivers accept, arrive, start the trip with the rider's PIN and complete it; admins verify drivers, manage the fleet and pricing, and handle support. A built-in assistant answers questions and looks up the signed-in rider's own bookings.
+Chauffeur-driven car rentals in Varanasi (Phase 1). Customers book hourly or full-day packages, outstation one-way or round trips, or airport transfers, see the full price before booking, and send a request. Operations approves it and assigns a compliant car and verified chauffeur. The chauffeur runs the trip from the app, from acknowledgement to the final bill, and payments are recorded by hand (cash or UPI).
+
+Instant city rides (Uber-style) are still in the code, switched off by `RIDES_ENABLED` for Phase 1.
 
 ## Stack
 
 | Layer | Technology |
 |---|---|
-| Web app | React 18, Vite 6, MUI 7, TanStack Query 5, React Router 7, Leaflet (OpenStreetMap), React Three Fiber (lazy hero), Framer Motion, Stripe Elements, Socket.IO client |
-| API | Node 20+, Express 4, Mongoose 8, zod 4, helmet, express-rate-limit, Socket.IO, Stripe, Nodemailer |
+| Web app | React 18, Vite 6, MUI 7, TanStack Query 5, React Router 7, Leaflet (OpenStreetMap), Framer Motion, Socket.IO client |
+| API | Node 20+, Express 4, Mongoose 8, zod 4, helmet, express-rate-limit, Socket.IO, Nodemailer |
 | Data | MongoDB (Atlas in production, a private local `mongod` in development) |
-| Tests | Jest + Supertest + mongodb-memory-server (107 API tests) |
+| Tests | Jest + Supertest + mongodb-memory-server (API), Playwright (browser checks) |
 
-## Features
+## Phase 1: how it works
 
-- **Rides:** place search (curated Varanasi landmarks plus OpenStreetMap search), current location, real road routing (OSRM) with a straight-line fallback, fares for every category, one active ride per rider, 4-digit PIN to start, live status, cancellation, ratings, 10-minute request expiry.
-- **Multi-stop rides and Darshan Circuits:** up to 3 stops with a chosen wait at each (charged at half the per-minute rate, included in the upfront fare). Four curated Varanasi circuits (Kashi Darshan, Ghats Trail, Sarnath Return, Heritage Day) fill the route in one tap; round trips are allowed when there is a stop.
-- **Scheduled rides:** book 30 minutes to 7 days ahead (max 3 upcoming). The fare is locked at booking; the ride enters the driver pool 15 minutes before pickup and never blocks booking a ride now.
-- **Promo codes and Offers:** percent or flat codes with caps, minimum fare, ride-type limits, validity window, global and per-rider limits (enforced atomically). Riders see live offers and the discount on every ride type before booking; uses are returned when a ride is cancelled or expires. Drivers earn the full fare: RIDE-IT funds the discount.
-- **Safety:** shareable live-trip link (no sign-in needed; no phone numbers, PIN or payment shown; expires an hour after the trip), in-trip SOS that alerts admins instantly with an urgent ticket and offers one-tap 112 and a trusted contact.
-- **Ride preferences:** quiet ride, AC, extra luggage, assistance, and a note for the driver, shown on the driver's request card and job screen.
-- **Rentals:** hourly booking for 1 hour to 7 days, booked up to 15 days ahead, optional chauffeur, overlap-safe reservations, cancellation before the start time.
-- **Drivers:** a three-step application and admin verification, an online toggle, live request feed sorted by distance, accept/release/arrive/start/complete, cash confirmation, and an earnings dashboard.
-- **Admin:** stats and charts, bookings (cancel/complete), driver approval, customers, admins, rental fleet, pricing editor, promo codes, support tickets (SOS alerts pinned to the top), app feedback, audit log.
-- **Accounts:** sign-up and sign-in per role, forgot/reset password by email, change password, sign out everywhere, saved places, notifications.
-- **Payments:** cash, or card through Stripe (test mode) with server-side verification and refunds when a booking is cancelled.
-- **Assistant:** works with no AI key at all (rules plus verified data); an optional free-tier LLM handles open-ended questions. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#chat-assistant).
+```
+Customer            Operations (admin)              Chauffeur
+search & price  ->  approve + assign car/driver ->  acknowledge (or decline)
+request (BK1042)    or reject with a reason         arrive (from 3 h before pickup)
+                    record payments / refunds       start: customer PIN + odometer
+cancel / move       swap car or driver, reschedule  complete: odometer, tolls, parking,
+pay UPI or cash     cancel (with refund %)              money collected -> final bill
+rate, invoice
+```
+
+**Booking statuses:** `pending_approval → confirmed → arrived → in_progress → completed`, plus `rejected` and `cancelled`. Payment status is separate (`unpaid`, `advance_paid`, `partially_paid`, `paid`, `refund_pending`, `partially_refunded`, `refunded`). It is always worked out from the payment records, never typed in by hand.
+
+**Rental types and pricing** (rate card per car class: hatchback, sedan, SUV, MUV):
+
+| Type | Price |
+|---|---|
+| Hourly local | 4 h / 40 km or 6 h / 60 km package |
+| Full day local | 8 h / 80 km or 12 h / 120 km package |
+| Airport transfer | Fixed fare up to the included km; pickups include 30 min of waiting |
+| Outstation one-way | max(distance, one-way minimum km) × ₹/km + driver allowance (+ night charge) |
+| Outstation round trip | max(2 × distance, days × minimum km/day) × ₹/km + allowance × days + nights |
+
+Prices include GST (set in Settings). Each booking stores a snapshot of the rates it was priced with, so later rate changes never change existing bookings. At completion the final bill adds extra km, extra hours (after 15 minutes' grace), GST on those extras, and tolls and parking at actuals.
+
+**Rules the server enforces:**
+- **No double booking.** Cars and chauffeurs hold atomic time-slot locks covering the trip, any empty return drive, and a turnaround buffer. Simultaneous requests for the same car, or two admins assigning the same chauffeur at once, can never both succeed.
+- **Compliance.** A car is only offered or assigned when its RC, insurance, permit, fitness and PUC are on file and valid until the trip ends. A chauffeur needs an approved account, a valid licence and a verified police check. Expiring documents show on the dashboard.
+- **Customer protections.**
+  - A customer can't book overlapping trips and can have at most 5 requests waiting.
+  - Pickup must be at least 2 h ahead and at most 30 days ahead; both limits are configurable.
+  - Requests nobody approves before pickup are closed automatically, and the car is released.
+- **Cancellation policy** (configurable):
+  - Free before confirmation.
+  - Full refund more than 24 h before pickup; 50% between 6 and 24 h; none under 6 h.
+  - The charge is never more than what the customer has paid.
+  - Admins choose the refund share when they cancel, and must confirm before cancelling a trip that is under way.
+- **Admin roles.**
+  - Super admin: everything, including rates, settings, the admin team and the audit log.
+  - Operations: bookings, fleet, chauffeurs and payments.
+  - Support: tickets, plus read-only access to bookings and people.
+  - Role changes apply immediately, and the last super admin can't be removed.
+- **Safety.**
+  - A 4-digit PIN is needed to start the trip.
+  - SOS during the trip creates an urgent ticket and offers one tap to call 112 or text a trusted contact.
+  - Chauffeurs can report breakdowns or accidents as urgent tickets.
+  - Chauffeurs only ever see their own trips.
+
+Other features: printable invoice/booking summary, ratings with low scores flagged, fleet owners with agreement terms, booking references (`BK1001`…), notifications at every step, help centre tickets linked to a booking, and an assistant that answers from live rates and policies.
 
 ## Run locally
 
-Prerequisites: Node 20+ and MongoDB Community Server (any recent version) installed locally.
+Prerequisites: Node 20+ and MongoDB Community Server installed locally.
 
 ```bash
 npm install                 # API
@@ -45,9 +83,11 @@ Demo accounts (password `Demo@1234`):
 
 | Role | Usernames |
 |---|---|
-| Admin (sign in at `/admin/login`) | `admin` |
-| Riders | `asha`, `rohan`, `priya` |
-| Drivers | `ravi` (Mini, online), `sunil` (Sedan), `imran` (Auto), `manoj` (SUV), `deepak` (pending approval) |
+| Admins (sign in at `/admin/login`) | `admin` (super), `ops` (operations), `support` (support) |
+| Customers | `asha`, `rohan`, `priya`, `vikram` |
+| Chauffeurs | `ravi`, `sunil`, `imran` (licence expiring soon), `manoj` (police check pending, cannot be assigned), `deepak` (application pending) |
+
+The seed covers every state: requests waiting for approval, confirmed trips (acknowledged and not), a trip under way, completed trips with final bills, a cancelled booking with a refund due, a rejected request, a car in maintenance, a car with an expired PUC, and a partner agreement ending soon.
 
 Without SMTP settings, password-reset emails are printed in the API console.
 
@@ -59,10 +99,12 @@ Nothing leaves the machine with these settings: landmark search and straight-lin
 npm run db:local
 MONGO_DB_NAME=ride-it-qa npm run seed -- --reset
 MONGO_DB_NAME=ride-it-qa GEO_PROVIDER=offline AI_BASE_URL= STRIPE_SECRET_KEY= SMTP_HOST= node server.js
-cd client && VITE_MAP_TILES=off npx vite      # map draws markers and the route on a plain grid
+cd client && VITE_MAP_TILES=off npx vite
 ```
 
-The seed also creates promo codes `WELCOME50`, `DARSHAN100`, `AUTO20` (public) and `STAFFONLY` (hidden), and gives `asha` a trusted contact.
+### Switching instant rides back on
+
+Set `RIDES_ENABLED=true` on the API. The Ride page, multi-stop rides, Darshan Circuits, promo codes, live trip sharing and the driver ride pool all come back, and the web app adapts automatically through `/api/meta`.
 
 ## Scripts
 
@@ -71,26 +113,21 @@ The seed also creates promo codes `WELCOME50`, `DARSHAN100`, `AUTO20` (public) a
 | `npm test` | API test suite against an in-memory MongoDB |
 | `npm run db:local` | Starts a private `mongod` (port 27027, data in `.localdb/`) |
 | `npm run seed [-- --reset]` | Synthetic demo data, local databases only |
-| `npm run create-admin -- --username … --email … --name … --phone …` | Creates an admin; password comes from `ADMIN_PASSWORD` |
-| `npm run migrate [-- --apply]` | v1 → v2 data migration (dry run by default) |
+| `npm run create-admin -- --username … --email … --name … --phone …` | Creates a super admin; password comes from `ADMIN_PASSWORD` |
+| `npm run backup` | Exports every collection to `backups/` (Extended JSON) |
 | `npm run build --prefix client` | Production build of the web app |
 
 ## Project layout
 
 ```
-server.js               HTTP server, Socket.IO, ride-expiry sweeper
+server.js               HTTP server, Socket.IO, background sweeps (unconfirmed requests, ride expiry)
 src/app.js              Express app: security middleware and routes
-src/routes/             auth, catalog (geo/fares/cars), booking, driver, admin, account, payments, chat
-src/services/           fare engine, geo/routing, booking state machine, payments, chat, notifications
-src/models/             accounts (user/driver/admin), Car, Booking, misc (fares, notifications, tickets, audit, feedback)
-scripts/                local-db, seed, create-admin, migrate-v2
-tests/                  Jest + Supertest suites
-client/src/             React app: pages/, components/, providers/, lib/
+src/routes/             rentals (customer), booking (shared + rides), driver, admin, auth, catalog, account, payments, chat
+src/services/           rentals (planning, pricing, locks, compliance, policy, payments), rentalOps (approve/assign/complete),
+                        bookings (state machine), fare, geo, chat, notify
+src/models/             accounts, Car, Booking, rental (owners, rate cards, payments, settings, counters), misc, Promo
+scripts/                local-db, seed, create-admin, backup, migrate-v2
+tests/                  Jest + Supertest suites (rentals.test.js covers Phase 1)
+client/src/             React app: pages/ (rider, driver, admin, auth), components/, providers/, lib/
 docs/                   deployment and security notes
 ```
-
-## How a ride works
-
-`requested → accepted → arrived → in_progress → completed`, with `cancelled` (by the rider or an admin, before the trip starts) and `expired` (no driver within 10 minutes). Every transition is one atomic, status-guarded MongoDB update. Two drivers racing for the same ride, or a rider double-tapping "Book", can never both succeed. Partial unique indexes enforce one active ride per rider and one active job per driver.
-
-Fares are always computed on the server: `max(base + perKm × km + perMin × min, minimum)`, rounded to the rupee. Prices for each category are editable in the admin console.

@@ -4,18 +4,21 @@ const { connectDB, mongoose } = require('./src/db');
 const { createApp, isAllowedOrigin } = require('./src/app');
 const { attachRealtime } = require('./src/services/realtime');
 const { ensureDefaultCategories } = require('./src/services/fare');
-const { expireStaleRideRequests, dispatchScheduledRides } = require('./src/services/bookings');
+const { ensureRentalDefaults } = require('./src/services/rentals');
+const { expireStaleRideRequests, dispatchScheduledRides, rejectUnconfirmedRentals } = require('./src/services/bookings');
 
 async function start() {
     assertConfig();
     await connectDB();
     await ensureDefaultCategories();
+    await ensureRentalDefaults();
 
     const app = createApp();
     const server = http.createServer(app);
     attachRealtime(server, isAllowedOrigin);
 
     const sweeper = setInterval(() => {
+        rejectUnconfirmedRentals().catch(error => console.error('Rental request sweep failed:', error.message));
         expireStaleRideRequests().catch(error => console.error('Ride expiry sweep failed:', error.message));
         dispatchScheduledRides().catch(error => console.error('Scheduled ride dispatch failed:', error.message));
     }, 60 * 1000);

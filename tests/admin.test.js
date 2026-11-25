@@ -73,10 +73,8 @@ describe('admin operations', () => {
         const id = created.body.item._id;
         await admin.patch(`/api/admin/cars/${id}`).send({ rentPerHour: 320 }).expect(200);
 
-        const rider = await h.customer();
-        const start = new Date(Date.now() + 26 * 3600e3).toISOString();
-        const end = new Date(Date.now() + 28 * 3600e3).toISOString();
-        await rider.post('/api/rentals').send({ carId: id, start, end }).expect(201);
+        // A finished booking keeps its car reference, so the car is retired, not deleted.
+        await Booking.create({ type: 'rental', user: admin.doc._id, car: id, status: 'completed', totalAmount: 500 });
         const res = await admin.delete(`/api/admin/cars/${id}`).expect(200);
         expect(res.body.retired).toBe(true);
         expect(await Booking.countDocuments({ car: id })).toBe(1);

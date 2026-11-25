@@ -13,13 +13,14 @@ const { CIRCUITS, circuitKeys } = require('../services/circuits');
 const { validate, limiter, idParams } = require('../middleware/common');
 const geo = require('../services/geo');
 const fare = require('../services/fare');
+const rentals = require('../services/rentals');
 const payments = require('../services/payments');
 const { transition } = require('../services/bookings');
 const { notify, broadcastBooking, audit } = require('../services/notify');
 const { emitToRoom, driverPoolRoom } = require('../services/realtime');
 const v = require('../validation');
 const { haversineKm } = require('../utils/geo');
-const { HttpError, asyncHandler, badRequest, notFound, conflict, paginate } = require('../utils/http');
+const { HttpError, asyncHandler, badRequest, notFound, conflict, forbidden, paginate } = require('../utils/http');
 
 const router = express.Router();
 const { z } = v;
@@ -120,13 +121,18 @@ function checkSchedule(scheduledFor) {
 
 // ---------- Rides ----------
 
-router.get('/circuits', (req, res) => res.json({ circuits: CIRCUITS }));
+// Instant rides are switched off for the chauffeur-rental launch (RIDES_ENABLED).
+const ridesOnly = (req, res, next) => (config.ridesEnabled
+    ? next()
+    : next(notFound('Instant rides are not available yet. Book a chauffeur-driven car instead.')));
 
-router.get('/promos/offers', asyncHandler(async (req, res) => {
+router.get('/circuits', ridesOnly, (req, res) => res.json({ circuits: CIRCUITS }));
+
+router.get('/promos/offers', ridesOnly, asyncHandler(async (req, res) => {
     res.json({ offers: await promos.publicOffers() });
 }));
 
-router.post('/rides/quote', quoteLimiter, optionalAuth, validate({ body: z.object(routeFields) }), asyncHandler(async (req, res) => {
+router.post('/rides/quote', ridesOnly, quoteLimiter, optionalAuth, validate({ body: z.object(routeFields) }), asyncHandler(async (req, res) => {
     const { pickup, drop, stops, promoCode } = req.body;
     const priced = await priceRoute(pickup, drop, stops);
     let { options } = priced;
@@ -147,7 +153,7 @@ router.post('/rides/quote', quoteLimiter, optionalAuth, validate({ body: z.objec
     });
 }));
 
-router.post('/rides', requireAuth('customer'), quoteLimiter, validate({ body: rideBody }), asyncHandler(async (req, res) => {
+router.post('/rides', ridesOnly, requireAuth('customer'), quoteLimiter, validate({ body: rideBody }), asyncHandler(async (req, res) => {
     const { pickup, drop, stops, category, promoCode, scheduledFor } = req.body;
     if (req.body.paymentMethod === 'card' && !payments.cardPaymentsEnabled()) {
         throw badRequest('Card payments are not available right now. Please choose cash.');
@@ -220,6 +226,7 @@ router.post('/rides', requireAuth('customer'), quoteLimiter, validate({ body: ri
 
 const SHAREABLE = ['scheduled', 'requested', 'accepted', 'arrived', 'in_progress'];
 const SOS_STATUSES = ['accepted', 'arrived', 'in_progress'];
+const RENTAL_SOS_STATUSES = ['arrived', 'in_progress'];
 const SHARE_LINK_GRACE_MS = 60 * 60 * 1000;
 const shareUrl = token => `${config.appUrl.replace(/\/$/, '')}/share/${token}`;
 
@@ -237,14 +244,14 @@ async function ownRide(id, userId) {
     return booking;
 }
 
-router.post('/bookings/:id/share', requireAuth('customer'), validate({ params: idParams }), asyncHandler(async (req, res) => {
+router.post('/bookings/:id/share', ridesOnly, requireAuth('customer'), validate({ params: idParams }), asyncHandler(async (req, res) => {
     const booking = await ownRide(req.params.id, req.auth.id);
     if (!SHAREABLE.includes(booking.status)) throw conflict('This trip has ended, so it can no longer be shared', 'not_shareable');
     const token = await ensureShareToken(booking._id, req.auth.id);
     res.json({ token, url: shareUrl(token) });
 }));
 
-router.delete('/bookings/:id/share', requireAuth('customer'), validate({ params: idParams }), asyncHandler(async (req, res) => {
+router.delete('/bookings/:id/share', ridesOnly, requireAuth('customer'), validate({ params: idParams }), asyncHandler(async (req, res) => {
     await ownRide(req.params.id, req.auth.id);
     await Booking.updateOne({ _id: req.params.id, user: req.auth.id }, { $unset: { shareToken: 1 } });
     res.status(204).end();
@@ -254,7 +261,7 @@ const shareLimiter = limiter({ windowMs: 60 * 1000, limit: 60 });
 
 // Public, read-only. Shows enough for a family member to follow the trip,
 // never phone numbers, the PIN, payment details or the rider's full name.
-router.get('/share/:token', shareLimiter, validate({
+router.get('/share/:token', ridesOnly, shareLimiter, validate({
     params: z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{20,40}$/, 'Invalid link') }),
 }), asyncHandler(async (req, res) => {
     const booking = await Booking.findOne({ shareToken: req.params.token })
@@ -307,11 +314,16 @@ router.post('/bookings/:id/sos', requireAuth('customer'), sosLimiter, validate({
     params: idParams,
     body: z.object({ location: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).optional() }),
 }), asyncHandler(async (req, res) => {
-    const booking = await ownRide(req.params.id, req.auth.id);
-    if (!SOS_STATUSES.includes(booking.status)) throw conflict('SOS is available while a driver is assigned or the trip is in progress', 'not_active');
+    const booking = await Booking.findOne({ _id: req.params.id, user: req.auth.id }).lean();
+    if (!booking) throw notFound('Booking not found');
+    const isRide = booking.type === 'ride';
+    if (!(isRide ? SOS_STATUSES : RENTAL_SOS_STATUSES).includes(booking.status)) {
+        throw conflict(isRide ? 'SOS is available while a driver is assigned or the trip is in progress' : 'SOS is available once your chauffeur arrives and during the trip', 'not_active');
+    }
 
     const rider = await User.findById(req.auth.id).select('fullName email phoneNumber trustedContact').lean();
-    const token = await ensureShareToken(booking._id, req.auth.id);
+    // Live share links belong to instant rides; chauffeur trips send the booking reference instead.
+    const token = isRide && config.ridesEnabled ? await ensureShareToken(booking._id, req.auth.id) : null;
     const where = req.body.location ? `Rider location: ${req.body.location.lat.toFixed(5)}, ${req.body.location.lng.toFixed(5)}.` : 'Rider location not shared.';
     const ticket = await SupportTicket.create({
         requester: req.auth.id,
@@ -320,7 +332,7 @@ router.post('/bookings/:id/sos', requireAuth('customer'), sosLimiter, validate({
         requesterEmail: rider?.email,
         booking: booking._id,
         subject: 'SOS: rider needs urgent help',
-        message: `Emergency raised during a ${booking.status.replace('_', ' ')} trip. ${where} Rider phone: ${rider?.phoneNumber}. Live trip: ${shareUrl(token)}`,
+        message: `Emergency raised during a ${booking.status.replace('_', ' ')} trip${booking.reference ? ` (${booking.reference})` : ''}. ${where} Rider phone: ${rider?.phoneNumber}.${token ? ` Live trip: ${shareUrl(token)}` : ''}`,
         source: 'sos',
         priority: 'urgent',
     });
@@ -330,85 +342,15 @@ router.post('/bookings/:id/sos', requireAuth('customer'), sosLimiter, validate({
     res.status(201).json({
         emergencyNumber: '112',
         ticketId: ticket._id,
-        shareUrl: shareUrl(token),
+        shareUrl: token ? shareUrl(token) : null,
+        reference: booking.reference || null,
         trustedContact: rider?.trustedContact?.phone ? rider.trustedContact : null,
     });
 }));
 
-router.get('/rides/active', requireAuth('customer'), asyncHandler(async (req, res) => {
+router.get('/rides/active', ridesOnly, requireAuth('customer'), asyncHandler(async (req, res) => {
     const active = await Booking.findOne({ user: req.auth.id, type: 'ride', activeCustomer: true }).select('_id').lean();
     res.json({ booking: active ? await loadForViewer(active._id, req.auth) : null });
-}));
-
-// ---------- Rentals ----------
-
-const rentalBody = z.object({
-    carId: v.z.string().regex(/^[a-f\d]{24}$/i, 'Invalid car'),
-    start: v.isoDate('Start time'),
-    end: v.isoDate('End time'),
-    driverRequired: z.boolean().default(false),
-});
-
-function checkRentalWindow(start, end) {
-    const now = Date.now();
-    if (start.getTime() < now - 5 * 60 * 1000) throw badRequest('Start time must be in the future');
-    if (start.getTime() > now + fare.RENTAL_MAX_DAYS_AHEAD * 24 * 3600 * 1000) throw badRequest(`Rentals can be booked up to ${fare.RENTAL_MAX_DAYS_AHEAD} days ahead`);
-    if (end <= start) throw badRequest('End time must be after start time');
-    const hours = fare.rentalHours(start, end);
-    if (hours > fare.RENTAL_MAX_HOURS) throw badRequest('Rentals can last at most 7 days');
-    return hours;
-}
-
-router.post('/rentals/quote', quoteLimiter, validate({ body: rentalBody }), asyncHandler(async (req, res) => {
-    const { carId, start, end, driverRequired } = req.body;
-    const car = await Car.findOne({ _id: carId, active: true }).lean();
-    if (!car) throw notFound('Car not found');
-    const hours = checkRentalWindow(start, end);
-    const available = !(await Car.exists({ _id: carId, slots: { $elemMatch: { active: true, start: { $lt: end }, end: { $gt: start } } } }));
-    res.json({ hours, available, ...fare.computeRentalFare(car.rentPerHour, hours, driverRequired), currency: 'INR' });
-}));
-
-router.post('/rentals', requireAuth('customer'), quoteLimiter, validate({
-    body: rentalBody.extend({ paymentMethod }),
-}), asyncHandler(async (req, res) => {
-    const { carId, start, end, driverRequired } = req.body;
-    if (req.body.paymentMethod === 'card' && !payments.cardPaymentsEnabled()) {
-        throw badRequest('Card payments are not available right now. Please choose cash.');
-    }
-    const car = await Car.findOne({ _id: carId, active: true }).lean();
-    if (!car) throw notFound('Car not found');
-    const hours = checkRentalWindow(start, end);
-    const price = fare.computeRentalFare(car.rentPerHour, hours, driverRequired);
-    const status = driverRequired ? 'pending_driver' : 'confirmed';
-
-    const booking = await Booking.create({
-        type: 'rental',
-        user: req.auth.id,
-        status,
-        car: car._id,
-        start,
-        end,
-        totalHours: hours,
-        driverRequired,
-        totalAmount: price.total,
-        fareBreakdown: price.breakdown,
-        payment: { method: req.body.paymentMethod },
-        timeline: [{ status, by: 'customer' }],
-    });
-
-    // Atomic reservation: only succeeds if no active slot overlaps.
-    const reserved = await Car.findOneAndUpdate(
-        { _id: car._id, active: true, slots: { $not: { $elemMatch: { active: true, start: { $lt: end }, end: { $gt: start } } } } },
-        { $push: { slots: { start, end, booking: booking._id, active: true } } },
-    );
-    if (!reserved) {
-        await Booking.deleteOne({ _id: booking._id });
-        throw conflict('This car is already booked for part of that time. Pick another slot.', 'slot_taken');
-    }
-
-    if (driverRequired) emitToRoom('drivers:rentals', 'rental:new', { id: booking._id.toString() });
-    await audit(req, 'booking.create', 'booking', booking._id, { type: 'rental', car: car._id, total: booking.totalAmount });
-    res.status(201).json({ booking: await loadForViewer(booking._id, req.auth) });
 }));
 
 // ---------- Shared booking views ----------
@@ -419,7 +361,7 @@ const DRIVER_PUBLIC = 'fullName phoneNumber vehicle rating';
 // Loads a booking with exactly the fields this viewer may see.
 async function loadForViewer(id, auth) {
     const query = Booking.findById(id)
-        .populate('car', 'name image capacity fuelType rentPerHour')
+        .populate('car', 'name image capacity fuelType category registrationNumber luggage ac rentPerHour')
         .populate('driver', DRIVER_PUBLIC)
         .populate('user', CUSTOMER_PUBLIC);
     if (auth.role === 'customer' || auth.role === 'admin') query.select('+pin +routeGeometry +shareToken');
@@ -434,16 +376,17 @@ async function loadForViewer(id, auth) {
     if (auth.role === 'driver' && driverId !== auth.id) {
         // Unassigned open requests are visible to drivers, without customer contact details.
         const driver = await Driver.findById(auth.id).select('status vehicle').lean();
-        const openRide = booking.type === 'ride' && booking.status === 'requested' && driver?.vehicle?.category === booking.category;
-        const openRental = booking.type === 'rental' && booking.status === 'pending_driver';
-        if (!(driver?.status === 'approved' && (openRide || openRental))) throw notFound('Booking not found');
+        const openRide = config.ridesEnabled && booking.type === 'ride' && booking.status === 'requested' && driver?.vehicle?.category === booking.category;
+        if (!(driver?.status === 'approved' && openRide)) throw notFound('Booking not found');
         const json = booking.toJSON();
         json.user = { fullName: (booking.user?.fullName || 'Customer').split(' ')[0], rating: publicRating(booking.user?.rating) };
         return json;
     }
     const json = booking.toJSON();
     // The customer keeps the PIN only until the trip starts.
-    if (auth.role === 'customer' && !['scheduled', 'requested', 'accepted', 'arrived'].includes(booking.status)) delete json.pin;
+    if (auth.role === 'customer' && !['scheduled', 'requested', 'accepted', 'arrived', 'pending_approval', 'confirmed'].includes(booking.status)) delete json.pin;
+    // Which drivers declined an assignment is internal to operations.
+    if (auth.role !== 'admin' && json.assignment) delete json.assignment.declines;
     if (auth.role === 'customer') {
         json.sharing = Boolean(booking.shareToken);
         if (booking.shareToken) json.shareUrl = `${config.appUrl.replace(/\/$/, '')}/share/${booking.shareToken}`;
@@ -473,7 +416,7 @@ router.get('/bookings', requireAuth('customer', 'driver'), validate({ query: lis
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .populate('car', 'name image')
+            .populate('car', 'name image category registrationNumber')
             .populate('driver', 'fullName vehicle rating')
             .populate('user', 'fullName'),
         Booking.countDocuments(filter),
@@ -487,16 +430,43 @@ router.get('/bookings/:id', requireAuth(), validate({ params: idParams }), async
 
 router.post('/bookings/:id/cancel', requireAuth('customer', 'admin'), validate({
     params: idParams,
-    body: z.object({ reason: z.string().trim().max(300).optional() }),
+    body: z.object({
+        reason: z.string().trim().max(300).optional(),
+        // Admin only: share of the amount paid to return (default: everything).
+        refundPercent: z.number().int().min(0).max(100).optional(),
+        // Admin only: explicit confirmation to cancel a trip that is already under way.
+        confirmActive: z.boolean().optional(),
+    }),
 }), asyncHandler(async (req, res) => {
+    const isAdmin = req.auth.role === 'admin';
+    if (isAdmin && !['super', 'operations'].includes(req.auth.adminRole)) throw forbidden('Your admin role does not allow this action');
+    const settings = await rentals.getSettings();
     const booking = await transition(req.params.id, 'cancel', req.auth, {
         guard: async current => {
-            if (current.type === 'rental' && req.auth.role === 'customer' && current.start <= new Date()) {
-                throw conflict('This rental has already started and can no longer be cancelled online. Contact support.', 'too_late');
+            if (current.type !== 'rental') return;
+            if (isAdmin && (!req.body.reason || req.body.reason.length < 3)) throw badRequest('Give a reason for cancelling; the customer will see it');
+            if (!isAdmin) {
+                if (!['pending_approval', 'pending_driver', 'confirmed'].includes(current.status) || current.start <= new Date()) {
+                    throw conflict('Your trip has already started or your chauffeur has arrived. Contact support to cancel.', 'too_late');
+                }
+            } else if (['arrived', 'in_progress'].includes(current.status) && !req.body.confirmActive) {
+                throw conflict('This trip is under way. Confirm that you really want to cancel an active trip.', 'confirm_required');
             }
         },
-        set: { cancellation: { by: req.auth.role, reason: req.body.reason, at: new Date() } },
+        set: current => {
+            const cancellation = { by: req.auth.role, reason: req.body.reason, at: new Date() };
+            if (current.type === 'rental' && current.rentalType) {
+                const terms = rentals.cancellationTerms(current, settings, { refundPercent: isAdmin ? (req.body.refundPercent ?? 100) : undefined });
+                Object.assign(cancellation, { refundPercent: terms.refundPercent, charge: terms.charge });
+            }
+            return { cancellation };
+        },
+        note: req.body.reason,
     });
+    if (booking.type === 'rental' && !isAdmin) {
+        const { notifyOperations } = require('./rentals');
+        await notifyOperations(booking, `${booking.reference || 'Booking'} cancelled by customer`, req.body.reason || 'No reason given');
+    }
     res.json({ booking: await loadForViewer(booking._id, req.auth) });
 }));
 

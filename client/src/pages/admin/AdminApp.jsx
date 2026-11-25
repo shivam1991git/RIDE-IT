@@ -2,7 +2,7 @@ import { lazy, Suspense, useState } from 'react';
 import { NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  AppBar, Badge, Box, Divider, Drawer, IconButton, LinearProgress, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography, useMediaQuery,
+  Alert, AppBar, Badge, Box, Divider, Drawer, IconButton, LinearProgress, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography, useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import MenuRounded from '@mui/icons-material/MenuRounded';
@@ -17,12 +17,16 @@ import SupportAgentRounded from '@mui/icons-material/SupportAgentRounded';
 import ReviewsRounded from '@mui/icons-material/ReviewsRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
 import AdminPanelSettingsRounded from '@mui/icons-material/AdminPanelSettingsRounded';
+import HandshakeRounded from '@mui/icons-material/HandshakeRounded';
+import TuneRounded from '@mui/icons-material/TuneRounded';
 import LogoutRounded from '@mui/icons-material/LogoutRounded';
 import Logo from '../../components/layout/Logo';
 import NotificationBell from '../../components/layout/NotificationBell';
 import { get } from '../../lib/api';
 import { useAuth } from '../../providers/AuthProvider';
 import { useColorMode } from '../../providers/ColorModeProvider';
+import { useMeta } from '../../lib/meta';
+import { useAdminRole } from './shared';
 
 const Overview = lazy(() => import('./Overview'));
 const Bookings = lazy(() => import('./Bookings'));
@@ -33,25 +37,35 @@ const Promos = lazy(() => import('./Promos'));
 const Support = lazy(() => import('./SupportAdmin'));
 const Feedback = lazy(() => import('./Feedback'));
 const Audit = lazy(() => import('./Audit'));
+const Owners = lazy(() => import('./Owners'));
+const Settings = lazy(() => import('./Settings'));
 
 const WIDTH = 248;
 
+const ALL = ['super', 'operations', 'support'];
+const SUPER_ONLY = ['super'];
+
 function Nav({ onNavigate }) {
-  const stats = useQuery({ queryKey: ['admin', 'stats'], queryFn: () => get('/admin/stats') });
+  const { role } = useAdminRole();
+  const { ridesEnabled } = useMeta();
+  const stats = useQuery({ queryKey: ['admin', 'stats'], queryFn: () => get('/admin/stats'), refetchInterval: 60000 });
   const totals = stats.data?.totals || {};
+  const attention = stats.data?.attention || {};
   const items = [
-    ['', 'Overview', DashboardRounded],
-    ['bookings', 'Bookings', ReceiptLongRounded],
-    ['drivers', 'Drivers', BadgeRounded, totals.pendingDrivers],
-    ['customers', 'Customers', PeopleRounded],
-    ['fleet', 'Rental fleet', DirectionsCarRounded],
-    ['pricing', 'Pricing', SellRounded],
-    ['promos', 'Promo codes', LocalOfferRounded],
-    ['support', 'Support', SupportAgentRounded, totals.openTickets],
-    ['feedback', 'Feedback', ReviewsRounded],
-    ['admins', 'Admin team', AdminPanelSettingsRounded],
-    ['audit', 'Audit log', HistoryRounded],
-  ];
+    ['', 'Overview', DashboardRounded, 0, ALL],
+    ['bookings', 'Bookings', ReceiptLongRounded, (attention.pendingApproval || 0) + (attention.needsDriver || 0), ALL],
+    ['drivers', 'Chauffeurs', BadgeRounded, totals.pendingDrivers, ALL],
+    ['customers', 'Customers', PeopleRounded, 0, ALL],
+    ['fleet', 'Fleet', DirectionsCarRounded, stats.data?.complianceAlertCount, ALL],
+    ['owners', 'Fleet owners', HandshakeRounded, 0, ALL],
+    ['pricing', 'Pricing', SellRounded, 0, ALL],
+    ...(ridesEnabled ? [['promos', 'Promo codes', LocalOfferRounded, 0, SUPER_ONLY]] : []),
+    ['support', 'Support', SupportAgentRounded, totals.openTickets, ALL],
+    ['feedback', 'Feedback', ReviewsRounded, 0, ALL],
+    ['settings', 'Settings', TuneRounded, 0, SUPER_ONLY],
+    ['admins', 'Admin team', AdminPanelSettingsRounded, 0, SUPER_ONLY],
+    ['audit', 'Audit log', HistoryRounded, 0, SUPER_ONLY],
+  ].filter(item => item[4].includes(role));
   return (
     <List sx={{ px: 1.5 }} onClick={onNavigate}>
       {items.map(([path, label, Icon, badge]) => (
@@ -62,6 +76,11 @@ function Nav({ onNavigate }) {
       ))}
     </List>
   );
+}
+
+function SuperOnly({ children }) {
+  const { isSuper } = useAdminRole();
+  return isSuper ? children : <Alert severity="warning">Only super admins can open this page.</Alert>;
 }
 
 export default function AdminApp() {
@@ -81,6 +100,7 @@ export default function AdminApp() {
       <Divider />
       <Box sx={{ p: 2 }}>
         <Typography variant="subtitle2">{account.fullName}</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textTransform: 'capitalize' }}>{account.adminRole || 'super'} admin</Typography>
         <Typography variant="caption" color="text.secondary">{account.email}</Typography>
         <List dense sx={{ mt: 1 }}>
           <ListItemButton sx={{ borderRadius: 2 }} onClick={toggle}><ListItemText primary="Toggle theme" /></ListItemButton>
@@ -117,13 +137,15 @@ export default function AdminApp() {
               <Route path="bookings" element={<Bookings />} />
               <Route path="drivers" element={<People role="driver" />} />
               <Route path="customers" element={<People role="customer" />} />
-              <Route path="admins" element={<People role="admin" />} />
+              <Route path="admins" element={<SuperOnly><People role="admin" /></SuperOnly>} />
               <Route path="fleet" element={<Fleet />} />
+              <Route path="owners" element={<Owners />} />
               <Route path="pricing" element={<Pricing />} />
-              <Route path="promos" element={<Promos />} />
+              <Route path="promos" element={<SuperOnly><Promos /></SuperOnly>} />
               <Route path="support" element={<Support />} />
               <Route path="feedback" element={<Feedback />} />
-              <Route path="audit" element={<Audit />} />
+              <Route path="settings" element={<SuperOnly><Settings /></SuperOnly>} />
+              <Route path="audit" element={<SuperOnly><Audit /></SuperOnly>} />
             </Routes>
           </Suspense>
         </Box>

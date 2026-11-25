@@ -74,6 +74,10 @@ const config = {
     },
 
     rateLimitDisabled: env.RATE_LIMIT_DISABLED === 'true',
+
+    // Phase 1 launches chauffeur rentals only. Instant city rides (and their
+    // promos, circuits and live share links) stay in the code behind this switch.
+    ridesEnabled: env.RIDES_ENABLED === 'true',
 };
 
 function assertConfig() {

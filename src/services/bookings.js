@@ -1,5 +1,5 @@
 const { Booking, TERMINAL_STATUSES } = require('../models/Booking');
-const Car = require('../models/Car');
+const rentals = require('./rentals');
 const { notify, broadcastBooking, audit } = require('./notify');
 const payments = require('./payments');
 const promos = require('./promos');
@@ -17,10 +17,15 @@ const TRANSITIONS = {
         cancel: { from: ['scheduled', 'requested', 'accepted', 'arrived'], to: 'cancelled', actors: ['customer', 'admin'] },
         expire: { from: ['scheduled', 'requested'], to: 'expired', actors: ['system'] },
     },
+    // Chauffeur rentals. 'pending_driver' and completing from 'confirmed' only
+    // apply to v2 bookings made before admin approval existed.
     rental: {
-        accept: { from: ['pending_driver'], to: 'confirmed', actors: ['driver'] },
-        complete: { from: ['confirmed'], to: 'completed', actors: ['driver', 'admin'] },
-        cancel: { from: ['pending_driver', 'confirmed'], to: 'cancelled', actors: ['customer', 'admin'] },
+        approve: { from: ['pending_approval', 'pending_driver'], to: 'confirmed', actors: ['admin'] },
+        reject: { from: ['pending_approval', 'pending_driver'], to: 'rejected', actors: ['admin', 'system'] },
+        arrive: { from: ['confirmed'], to: 'arrived', actors: ['driver'] },
+        start: { from: ['arrived'], to: 'in_progress', actors: ['driver'] },
+        complete: { from: ['in_progress', 'confirmed'], to: 'completed', actors: ['driver', 'admin'] },
+        cancel: { from: ['pending_approval', 'pending_driver', 'confirmed', 'arrived', 'in_progress'], to: 'cancelled', actors: ['customer', 'admin'] },
     },
 };
 
@@ -40,6 +45,15 @@ const STATUS_MESSAGES = {
     cancelled: ['Booking cancelled', 'This booking has been cancelled.'],
     expired: ['No drivers available', 'We could not find a driver in time. Please try booking again.'],
     confirmed: ['Rental confirmed', 'Your rental booking is confirmed.'],
+};
+
+const RENTAL_MESSAGES = {
+    confirmed: ['Booking confirmed', 'Your car and chauffeur are confirmed. Driver details are in your booking.'],
+    rejected: ['Booking not confirmed', 'Sorry, we could not confirm this booking.'],
+    arrived: ['Your chauffeur has arrived', 'Share your 4-digit PIN with the driver to start the trip.'],
+    in_progress: ['Trip started', 'Have a safe journey!'],
+    completed: ['Trip completed', 'Thank you for travelling with RIDE-IT. Your final bill is ready.'],
+    cancelled: ['Booking cancelled', 'This booking has been cancelled.'],
 };
 
 function ownershipFilter(booking, auth, action) {
@@ -76,6 +90,7 @@ async function transition(bookingId, action, auth, options = {}) {
 
     const resolve = value => (typeof value === 'function' ? value(booking) : value) || {};
     const set = { status: rule.to, ...resolve(options.set) };
+    const note = typeof options.note === 'function' ? options.note(booking) : options.note;
     const unset = { ...resolve(options.unset) };
     if (TERMINAL_STATUSES.includes(rule.to)) {
         unset.activeCustomer = 1;
@@ -89,7 +104,7 @@ async function transition(bookingId, action, auth, options = {}) {
             {
                 $set: set,
                 ...(Object.keys(unset).length ? { $unset: unset } : {}),
-                $push: { timeline: { status: rule.to, by: auth.role } },
+                $push: { timeline: { status: rule.to, by: auth.role, ...(note ? { note } : {}) } },
             },
             { new: true },
         );
@@ -104,20 +119,28 @@ async function transition(bookingId, action, auth, options = {}) {
 }
 
 async function afterTransition(booking, action, auth, previous) {
-    if (booking.type === 'rental' && booking.status === 'cancelled' && booking.car) {
-        await Car.updateOne({ _id: booking.car, 'slots.booking': booking._id }, { $set: { 'slots.$.active': false } });
+    if (booking.type === 'rental' && ['cancelled', 'rejected'].includes(booking.status)) {
+        await rentals.release('car', booking.car, booking._id);
+        await rentals.release('driver', booking.driver, booking._id);
     }
     if (booking.status === 'cancelled' && booking.payment?.status === 'paid' && booking.payment.method === 'card') {
         await payments.refund(booking);
+    }
+    // Manual (cash/UPI) rentals: refresh what is paid, due or to be refunded.
+    if (booking.type === 'rental' && booking.rentalType && ['cancelled', 'rejected', 'completed'].includes(booking.status)) {
+        await rentals.refreshPayment(booking._id);
     }
 
     if (['cancelled', 'expired'].includes(booking.status) && booking.promo?.code) {
         await promos.release(booking._id);
     }
 
-    const [title, body] = action === 'dispatch'
+    const messages = booking.type === 'rental' ? { ...STATUS_MESSAGES, ...RENTAL_MESSAGES } : STATUS_MESSAGES;
+    let [title, body] = action === 'dispatch'
         ? ['Finding your driver', 'Your scheduled ride is now live. Nearby drivers can see it.']
-        : (STATUS_MESSAGES[booking.status] || ['Booking updated', `Status: ${booking.status}`]);
+        : (messages[booking.status] || ['Booking updated', `Status: ${booking.status}`]);
+    if (booking.reference) title = `${booking.reference}: ${title}`;
+    if (booking.status === 'rejected' && booking.rejection?.reason) body = `${body} Reason: ${booking.rejection.reason}`;
     if (auth.role !== 'customer') {
         await notify({ recipient: booking.user, role: 'customer', type: `booking.${booking.status}`, title, body, booking });
     }
@@ -186,7 +209,28 @@ async function dispatchScheduledRides(now = new Date()) {
     return result;
 }
 
+/**
+ * Rental requests that nobody approved before the pickup time are closed, so
+ * the car is released and the customer is told instead of waiting forever.
+ */
+async function rejectUnconfirmedRentals(now = new Date()) {
+    const stale = await Booking.find({ type: 'rental', status: { $in: ['pending_approval', 'pending_driver'] }, start: { $lte: now } }).select('_id').lean();
+    let rejected = 0;
+    for (const { _id } of stale) {
+        try {
+            await transition(_id, 'reject', { role: 'system' }, {
+                set: { rejection: { reason: 'We could not confirm this booking before the pickup time', at: now } },
+            });
+            rejected += 1;
+        } catch (error) {
+            // Approved or cancelled in the meantime.
+        }
+    }
+    return rejected;
+}
+
 module.exports = {
+    rejectUnconfirmedRentals,
     TRANSITIONS,
     RIDE_REQUEST_TTL_MIN,
     SCHEDULE_DISPATCH_LEAD_MIN,

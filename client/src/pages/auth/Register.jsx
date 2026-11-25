@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { Alert, Box, Button, Link, Stack, TextField, Typography } from '@mui/material';
 import AuthLayout from './AuthLayout';
 import { PasswordField, validateFields } from './fields';
@@ -15,6 +15,9 @@ export default function Register() {
   const [busy, setBusy] = useState(false);
   const { register } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Only same-site paths, so a crafted link cannot redirect elsewhere after sign-up.
+  const from = typeof location.state?.from === 'string' && /^\/(?![/\\])/.test(location.state.from) ? location.state.from : '/rentals';
 
   const set = name => event => {
     setForm({ ...form, [name]: event.target.value });
@@ -30,7 +33,7 @@ export default function Register() {
     setError('');
     try {
       await register({ role: 'customer', ...form });
-      navigate('/ride', { replace: true });
+      navigate(from, { replace: true });
     } catch (err) {
       setErrors(fieldErrors(err));
       setError(err.message);
@@ -44,7 +47,7 @@ export default function Register() {
   );
 
   return (
-    <AuthLayout title="Create your account" subtitle="It takes less than a minute." aside={{ title: 'Ride the city your way.', body: 'Save your favourite places, book in seconds and keep every receipt in one place.' }}>
+    <AuthLayout title="Create your account" subtitle="It takes less than a minute." aside={{ title: 'Your car and chauffeur, sorted.', body: 'Book hourly, full-day, outstation and airport trips with verified chauffeurs. Every price and receipt in one place.' }}>
       <Stack component="form" spacing={2} onSubmit={submit} noValidate>
         {error && <Alert severity="error">{error}</Alert>}
         {field('fullName', 'Full name', { autoComplete: 'name', autoFocus: true })}

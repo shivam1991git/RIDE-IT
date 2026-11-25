@@ -426,9 +426,8 @@ describe('live trip sharing', () => {
 
     test('rentals cannot be shared', async () => {
         const rider = await h.customer();
-        const car = await h.car();
-        const start = minutesFromNow(120);
-        const rental = await rider.post('/api/rentals').send({ carId: car._id.toString(), start: start.toISOString(), end: new Date(start.getTime() + 3 * 3600000).toISOString() }).expect(201);
+        const car = await h.fleetCar();
+        const rental = await rider.post('/api/rentals').send({ rentalType: 'hourly', packageKey: '4h40', pickup: h.PLACES.assi, start: minutesFromNow(180).toISOString(), passengers: 2, carId: car._id.toString() }).expect(201);
         const res = await rider.post(`/api/bookings/${rental.body.booking._id}/share`);
         expect(res.status).toBe(400);
     });

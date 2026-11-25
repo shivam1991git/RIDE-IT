@@ -7,15 +7,22 @@ import { PasswordField, validateFields } from './fields';
 import VehicleArt from '../../components/VehicleArt';
 import { useAuth } from '../../providers/AuthProvider';
 import { fieldErrors } from '../../lib/api';
+import { useMeta } from '../../lib/meta';
 
-const STEPS = ['Account', 'Licence', 'Vehicle'];
 const CATEGORIES = [['auto', 'Auto'], ['mini', 'Mini'], ['sedan', 'Sedan'], ['suv', 'SUV']];
+const PHONE = /^(\+91)?[6-9]\d{9}$/;
 
+// Chauffeurs drive fleet cars, so the vehicle step only exists while instant
+// rides (where drivers bring their own car) are switched on.
 export default function DriverSignup() {
+  const { ridesEnabled } = useMeta();
+  const steps = ridesEnabled ? ['Account', 'Licence', 'Vehicle'] : ['Account', 'Licence & safety'];
+  const last = steps.length - 1;
   const [step, setStep] = useState(0);
   const [form, setForm] = useState({
     fullName: '', username: '', email: '', phoneNumber: '', password: '',
-    drivingLicenseNumber: '', dob: '',
+    drivingLicenseNumber: '', dob: '', licenseExpiry: '',
+    emergencyContact: { name: '', phone: '' },
     vehicle: { category: 'mini', make: '', model: '', plateNumber: '', color: '' },
   });
   const [errors, setErrors] = useState({});
@@ -26,6 +33,7 @@ export default function DriverSignup() {
 
   const set = name => e => setForm({ ...form, [name]: e.target.value });
   const setVehicle = name => e => setForm({ ...form, vehicle: { ...form.vehicle, [name]: e.target.value } });
+  const setContact = name => e => setForm({ ...form, emergencyContact: { ...form.emergencyContact, [name]: e.target.value } });
 
   const validateStep = () => {
     let found = {};
@@ -34,6 +42,10 @@ export default function DriverSignup() {
       if (form.drivingLicenseNumber.trim().length < 6) found.drivingLicenseNumber = 'Enter your driving licence number';
       const age = form.dob ? (Date.now() - new Date(form.dob)) / (365.25 * 864e5) : 0;
       if (age < 18 || age > 75) found.dob = 'Drivers must be between 18 and 75 years old';
+      if (!form.licenseExpiry || new Date(form.licenseExpiry) <= new Date()) found.licenseExpiry = 'Enter a licence valid in the future';
+      if (form.emergencyContact.name.trim().length < 2) found['emergencyContact.name'] = 'Enter an emergency contact';
+      if (!PHONE.test(form.emergencyContact.phone.replace(/[\s-]/g, ''))) found['emergencyContact.phone'] = 'Enter a valid 10-digit mobile number';
+      else if (form.emergencyContact.phone.replace(/[\s-]/g, '').slice(-10) === form.phoneNumber.replace(/[\s-]/g, '').slice(-10)) found['emergencyContact.phone'] = 'Use someone else’s number';
     }
     if (step === 2) {
       if (form.vehicle.make.trim().length < 2) found['vehicle.make'] = 'Enter the vehicle make';
@@ -46,14 +58,15 @@ export default function DriverSignup() {
 
   const next = async () => {
     if (!validateStep()) return;
-    if (step < 2) {
+    if (step < last) {
       setStep(step + 1);
       return;
     }
     setBusy(true);
     setError('');
     try {
-      await register({ role: 'driver', ...form, dob: form.dob });
+      const { vehicle, ...rest } = form;
+      await register({ role: 'driver', ...rest, ...(ridesEnabled ? { vehicle } : {}) });
       setDone(true);
     } catch (err) {
       const fields = fieldErrors(err);
@@ -70,7 +83,7 @@ export default function DriverSignup() {
       <AuthLayout title="Application received" wide>
         <Stack spacing={2} sx={{ alignItems: 'flex-start' }}>
           <CheckCircleRounded color="success" sx={{ fontSize: 48 }} />
-          <Typography>Thanks, {form.fullName.split(' ')[0]}! Our team will verify your licence and vehicle. You can sign in now to check your status; you will be able to go online as soon as you are approved.</Typography>
+          <Typography>Thanks, {form.fullName.split(' ')[0]}! Our team will verify your licence and police verification. You can sign in now to check your status; trips will be assigned to you once you are approved.</Typography>
           <Button variant="contained" component={RouterLink} to="/login?role=driver">Driver sign in</Button>
         </Stack>
       </AuthLayout>
@@ -78,16 +91,19 @@ export default function DriverSignup() {
   }
 
   const tf = (name, label, props = {}) => (
-    <TextField label={label} value={form[name]} onChange={set(name)} error={Boolean(errors[name])} helperText={errors[name]} {...props} />
+    <TextField label={label} value={form[name]} onChange={set(name)} error={Boolean(errors[name])} helperText={errors[name] || props.helperText} {...props} />
   );
   const vf = (name, label, props = {}) => (
     <TextField label={label} value={form.vehicle[name]} onChange={setVehicle(name)} error={Boolean(errors[`vehicle.${name}`])} helperText={errors[`vehicle.${name}`]} {...props} />
   );
+  const cf = (name, label, props = {}) => (
+    <TextField label={label} value={form.emergencyContact[name]} onChange={setContact(name)} error={Boolean(errors[`emergencyContact.${name}`])} helperText={errors[`emergencyContact.${name}`]} {...props} />
+  );
 
   return (
-    <AuthLayout title="Drive with RIDE-IT" subtitle="Three quick steps. We review every application before you can take rides." wide>
+    <AuthLayout title="Drive with RIDE-IT" subtitle="Apply as a chauffeur. We verify every applicant before assigning trips." wide>
       <Stepper activeStep={step} alternativeLabel sx={{ mb: 4 }}>
-        {STEPS.map(label => <Step key={label}><StepLabel>{label}</StepLabel></Step>)}
+        {steps.map(label => <Step key={label}><StepLabel>{label}</StepLabel></Step>)}
       </Stepper>
       <Stack spacing={2} component="form" onSubmit={e => { e.preventDefault(); next(); }} noValidate>
         {error && <Alert severity="error">{error}</Alert>}
@@ -103,10 +119,19 @@ export default function DriverSignup() {
           </>
         )}
         {step === 1 && (
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
-            {tf('drivingLicenseNumber', 'Driving licence number', { autoFocus: true })}
-            {tf('dob', 'Date of birth', { type: 'date', slotProps: { inputLabel: { shrink: true } } })}
-          </Box>
+          <>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
+              {tf('drivingLicenseNumber', 'Driving licence number', { autoFocus: true })}
+              {tf('licenseExpiry', 'Licence valid until', { type: 'date', slotProps: { inputLabel: { shrink: true } } })}
+              {tf('dob', 'Date of birth', { type: 'date', slotProps: { inputLabel: { shrink: true } } })}
+            </Box>
+            <Typography variant="subtitle2" sx={{ pt: 1 }}>Emergency contact</Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
+              {cf('name', 'Name and relation')}
+              {cf('phone', 'Mobile number', { inputMode: 'tel' })}
+            </Box>
+            <Alert severity="info">After you apply, our team will ask for your licence and police verification certificate before assigning trips.</Alert>
+          </>
         )}
         {step === 2 && (
           <>
@@ -136,7 +161,7 @@ export default function DriverSignup() {
         )}
         <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'space-between', pt: 1 }}>
           <Button disabled={step === 0} onClick={() => setStep(step - 1)}>Back</Button>
-          <Button type="submit" variant="contained" disabled={busy}>{step < 2 ? 'Continue' : busy ? 'Submitting…' : 'Submit application'}</Button>
+          <Button type="submit" variant="contained" disabled={busy}>{step < last ? 'Continue' : busy ? 'Submitting…' : 'Submit application'}</Button>
         </Stack>
         <Typography variant="body2" color="text.secondary">Already applied? <Link component={RouterLink} to="/login?role=driver">Sign in as a driver</Link></Typography>
       </Stack>

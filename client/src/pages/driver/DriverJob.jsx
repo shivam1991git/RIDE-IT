@@ -8,6 +8,7 @@ import CallRounded from '@mui/icons-material/CallRounded';
 import NavigationRounded from '@mui/icons-material/NavigationRounded';
 import MapLayout from '../../components/MapLayout';
 import CarImage from '../../components/CarImage';
+import ChauffeurJob from './ChauffeurJob';
 import { CardSkeleton, FareBreakdown, RideExtras, RouteLine, StatusChip } from '../../components/ui';
 import { get, post } from '../../lib/api';
 import { dateTime, driverEarning, km, minutes, money } from '../../lib/format';
@@ -104,6 +105,7 @@ export default function DriverJob() {
   if (error) return <Container maxWidth="sm" sx={{ py: 8 }}><Alert severity="error">{error.message}</Alert></Container>;
   const { booking } = data;
 
+  if (booking.type === 'rental' && booking.rentalType) return <ChauffeurJob booking={booking} />;
   if (booking.type === 'rental') {
     const started = new Date(booking.start) <= new Date();
     const cashDue = booking.payment?.method === 'cash' && booking.payment?.status !== 'paid';

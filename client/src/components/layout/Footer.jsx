@@ -3,7 +3,7 @@ import { Box, Container, Link, Stack, Typography } from '@mui/material';
 import Logo from './Logo';
 
 const COLUMNS = [
-  { title: 'Ride', links: [['Book a ride', '/ride'], ['Rentals', '/rentals'], ['My trips', '/trips']] },
+  { title: 'Book', links: [['Book a car', '/rentals'], ['Airport transfers', '/rentals?type=airport'], ['Outstation trips', '/rentals?type=outstation_round'], ['My bookings', '/trips']] },
   { title: 'Drive', links: [['Become a driver', '/drive'], ['Driver sign in', '/login?role=driver']] },
   { title: 'Help', links: [['Help centre', '/support'], ['Safety', '/#safety'], ['Fares', '/#fares']] },
 ];
@@ -16,7 +16,7 @@ export default function Footer() {
           <Box sx={{ maxWidth: 320 }}>
             <Logo />
             <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-              Rides and hourly rentals across Varanasi — from the ghats to the airport. Upfront fares, verified drivers.
+              Chauffeur-driven cars in Varanasi: hourly, full-day, outstation and airport trips. Upfront prices, verified chauffeurs.
             </Typography>
           </Box>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(3, 1fr)' }, gap: 4 }}>
