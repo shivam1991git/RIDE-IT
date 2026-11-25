@@ -1,50 +1,76 @@
+// Rate cards per vehicle class (super admins edit; others view). Bookings keep
+// the price they were made with, so edits only affect new quotes.
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Box, Button, Card, FormControlLabel, Stack, Switch, TextField, Typography } from '@mui/material';
 import VehicleArt from '../../components/VehicleArt';
 import { CardSkeleton } from '../../components/ui';
 import { get, patch } from '../../lib/api';
+import { useMeta } from '../../lib/meta';
 import { money } from '../../lib/format';
 import { useToast } from '../../providers/ToastProvider';
-import { AdminHeader } from './shared';
+import { AdminHeader, useAdminRole } from './shared';
 
-const FIELDS = [['baseFare', 'Base ₹'], ['perKm', '₹ / km'], ['perMin', '₹ / min'], ['minFare', 'Minimum ₹'], ['capacity', 'Seats']];
+const ART = { hatchback: 'hatch', sedan: 'sedan', suv: 'suv', muv: 'mpv' };
+const packageLabel = pkg => `${pkg.hours} h / ${pkg.km} km`;
 
-// Same formula as the server, for a live preview of a sample 8 km / 20 min trip.
-const sample = f => Math.round(Math.max(Number(f.baseFare) + Number(f.perKm) * 8 + Number(f.perMin) * 20, Number(f.minFare)));
+function Num({ label, value, onChange, disabled, step = 1 }) {
+  return <TextField size="small" type="number" label={label} value={value} onChange={e => onChange(e.target.value)} disabled={disabled} slotProps={{ htmlInput: { min: 0, step } }} />;
+}
 
-function CategoryCard({ item }) {
+function RateCard({ item, packages, editable }) {
   const [form, setForm] = useState(item);
   const queryClient = useQueryClient();
   const toast = useToast();
   useEffect(() => setForm(item), [item]);
+  const price = key => form.packages.find(p => p.key === key)?.price ?? '';
+  const setPrice = (key, value) => setForm({ ...form, packages: packages.map(pkg => ({ key: pkg.key, price: pkg.key === key ? value : price(pkg.key) })) });
+  const setGroup = (group, key) => value => setForm({ ...form, [group]: { ...form[group], [key]: value } });
   const save = useMutation({
-    mutationFn: () => patch(`/admin/fares/${item.key}`, {
-      name: form.name, description: form.description, active: form.active,
-      ...Object.fromEntries(FIELDS.map(([key]) => [key, Number(form[key])])),
+    mutationFn: () => patch(`/admin/rates/${item.vehicleClass}`, {
+      label: form.label,
+      active: form.active,
+      extraKmRate: Number(form.extraKmRate),
+      extraHourRate: Number(form.extraHourRate),
+      packages: packages.map(pkg => ({ key: pkg.key, price: Number(price(pkg.key)) })),
+      outstation: Object.fromEntries(Object.entries(form.outstation).map(([k, v]) => [k, Number(v)])),
+      airport: Object.fromEntries(Object.entries(form.airport).map(([k, v]) => [k, Number(v)])),
     }),
-    onSuccess: () => { toast.success(`${form.name} pricing saved`); queryClient.invalidateQueries({ queryKey: ['admin', 'fares'] }); queryClient.invalidateQueries({ queryKey: ['fares'] }); },
+    onSuccess: () => { toast.success(`${form.label} rates saved`); queryClient.invalidateQueries({ queryKey: ['admin', 'rates'] }); queryClient.invalidateQueries({ queryKey: ['rental-options'] }); },
     onError: error => toast.error(error.message),
   });
   const dirty = JSON.stringify(form) !== JSON.stringify(item);
+  const off = !editable;
   return (
     <Card sx={{ p: 2.5 }}>
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 2 }}>
-        <Box sx={{ color: 'text.primary' }}><VehicleArt kind={item.key} width={80} /></Box>
+        <Box sx={{ color: 'text.primary' }}><VehicleArt kind={ART[item.vehicleClass] || 'sedan'} width={80} /></Box>
         <Box sx={{ flex: 1 }}>
-          <Typography variant="h6">{item.name}</Typography>
-          <Typography variant="caption" color="text.secondary">Sample 8 km / 20 min trip: <b>{money(sample(form))}</b></Typography>
+          <Typography variant="h6">{item.label}</Typography>
+          <Typography variant="caption" color="text.secondary">From {money(Math.min(...form.packages.map(p => Number(p.price) || 0)))} before GST</Typography>
         </Box>
-        <FormControlLabel control={<Switch checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} />} label="Active" />
+        <FormControlLabel control={<Switch checked={form.active} disabled={off} onChange={e => setForm({ ...form, active: e.target.checked })} />} label="Offered" />
       </Stack>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(5, 1fr)' }, gap: 1.5 }}>
-        {FIELDS.map(([key, label]) => (
-          <TextField key={key} size="small" type="number" label={label} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} slotProps={{ htmlInput: { min: 0, step: key === 'capacity' ? 1 : 0.5 } }} />
-        ))}
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>Local packages (₹)</Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' }, gap: 1.5, mb: 2 }}>
+        {packages.map(pkg => <Num key={pkg.key} label={packageLabel(pkg)} value={price(pkg.key)} onChange={value => setPrice(pkg.key, value)} disabled={off} />)}
       </Box>
-      <TextField size="small" label="Description" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} sx={{ mt: 1.5 }} />
-      {dirty && (
-        <Stack direction="row" spacing={1} sx={{ mt: 1.5, justifyContent: 'flex-end' }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' }, gap: 1.5, mb: 2 }}>
+        <Num label="Extra km ₹" value={form.extraKmRate} onChange={value => setForm({ ...form, extraKmRate: value })} disabled={off} step={0.5} />
+        <Num label="Extra hour ₹" value={form.extraHourRate} onChange={value => setForm({ ...form, extraHourRate: value })} disabled={off} />
+        <Num label="Airport fare ₹" value={form.airport.fare} onChange={setGroup('airport', 'fare')} disabled={off} />
+        <Num label="Airport incl. km" value={form.airport.includedKm} onChange={setGroup('airport', 'includedKm')} disabled={off} />
+      </Box>
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>Outstation</Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(5, 1fr)' }, gap: 1.5 }}>
+        <Num label="₹ per km" value={form.outstation.perKm} onChange={setGroup('outstation', 'perKm')} disabled={off} step={0.5} />
+        <Num label="Min km / day" value={form.outstation.minKmPerDay} onChange={setGroup('outstation', 'minKmPerDay')} disabled={off} />
+        <Num label="One-way min km" value={form.outstation.oneWayMinKm} onChange={setGroup('outstation', 'oneWayMinKm')} disabled={off} />
+        <Num label="Driver ₹ / day" value={form.outstation.driverAllowancePerDay} onChange={setGroup('outstation', 'driverAllowancePerDay')} disabled={off} />
+        <Num label="Night charge ₹" value={form.outstation.nightCharge} onChange={setGroup('outstation', 'nightCharge')} disabled={off} />
+      </Box>
+      {dirty && editable && (
+        <Stack direction="row" spacing={1} sx={{ mt: 2, justifyContent: 'flex-end' }}>
           <Button onClick={() => setForm(item)}>Discard</Button>
           <Button variant="contained" onClick={() => save.mutate()} disabled={save.isPending}>Save</Button>
         </Stack>
@@ -53,14 +79,49 @@ function CategoryCard({ item }) {
   );
 }
 
+// Instant ride fares, only while rides are switched on.
+function RideFares({ editable }) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const { data } = useQuery({ queryKey: ['admin', 'fares'], queryFn: () => get('/admin/fares') });
+  const save = useMutation({
+    mutationFn: ({ key, body }) => patch(`/admin/fares/${key}`, body),
+    onSuccess: () => { toast.success('Saved'); queryClient.invalidateQueries({ queryKey: ['admin', 'fares'] }); },
+    onError: error => toast.error(error.message),
+  });
+  return (
+    <Card sx={{ p: 2.5 }}>
+      <Typography variant="h6" sx={{ mb: 1.5 }}>Instant ride fares</Typography>
+      <Stack spacing={1}>
+        {(data?.items || []).map(item => (
+          <Stack key={item.key} direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+            <Typography sx={{ width: 80 }}>{item.name}</Typography>
+            {['baseFare', 'perKm', 'perMin', 'minFare'].map(field => (
+              <TextField key={field} size="small" type="number" label={field} defaultValue={item[field]} disabled={!editable} sx={{ width: 100 }}
+                onBlur={e => Number(e.target.value) !== item[field] && save.mutate({ key: item.key, body: { [field]: Number(e.target.value) } })} />
+            ))}
+          </Stack>
+        ))}
+      </Stack>
+    </Card>
+  );
+}
+
 export default function Pricing() {
-  const { data, isLoading } = useQuery({ queryKey: ['admin', 'fares'], queryFn: () => get('/admin/fares') });
+  const { isSuper } = useAdminRole();
+  const { ridesEnabled } = useMeta();
+  const { data, isLoading } = useQuery({ queryKey: ['admin', 'rates'], queryFn: () => get('/admin/rates') });
   return (
     <>
-      <AdminHeader title="Pricing" subtitle="Fare = max(base + per-km × distance + per-minute × time, minimum). Changes apply to new quotes immediately." />
-      <Alert severity="info" sx={{ mb: 2 }}>Existing bookings keep the fare they were booked at.</Alert>
-      {isLoading ? <CardSkeleton rows={4} height={160} /> : (
-        <Stack spacing={2}>{data.items.map(item => <CategoryCard key={item._id} item={item} />)}</Stack>
+      <AdminHeader title="Pricing" subtitle="Rate cards for each car class. GST, cancellation rules and booking windows are in Settings." />
+      <Alert severity="info" sx={{ mb: 2 }}>
+        Existing bookings keep the price they were booked at. {isSuper ? '' : 'Only super admins can change rates.'}
+      </Alert>
+      {isLoading ? <CardSkeleton rows={4} height={200} /> : (
+        <Stack spacing={2}>
+          {data.items.map(item => <RateCard key={item._id} item={item} packages={data.packages} editable={isSuper} />)}
+          {ridesEnabled && <RideFares editable={isSuper} />}
+        </Stack>
       )}
     </>
   );

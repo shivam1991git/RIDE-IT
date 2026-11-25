@@ -57,13 +57,13 @@ export default function SupportAdmin() {
       label: 'Subject',
       render: row => (
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-          {row.priority === 'urgent' && row.status !== 'resolved' && <Chip size="small" color="error" label="SOS" sx={{ fontWeight: 700 }} />}
+          {row.priority === 'urgent' && row.status !== 'resolved' && <Chip size="small" color="error" label={row.source === 'sos' ? 'SOS' : 'Urgent'} sx={{ fontWeight: 700 }} />}
           <Typography variant="body2" sx={{ fontWeight: 600, maxWidth: 280 }} noWrap>{row.subject}</Typography>
         </Stack>
       ),
     },
     { key: 'requester', label: 'From', render: row => `${row.requesterName} (${row.requesterRole})` },
-    { key: 'source', label: 'Source', render: row => <Chip size="small" variant="outlined" label={row.source} /> },
+    { key: 'source', label: 'Source', render: row => <Chip size="small" variant="outlined" label={{ form: 'Help centre', chatbot: 'Assistant', sos: 'SOS', trip_issue: 'Chauffeur report' }[row.source] || row.source} /> },
     { key: 'status', label: 'Status', render: row => <Chip size="small" color={COLORS[row.status]} label={row.status.replace('_', ' ')} /> },
     { key: 'action', label: '', align: 'right', render: row => <Button size="small" onClick={() => setSelected(row)}>Open</Button> },
   ];
@@ -71,7 +71,7 @@ export default function SupportAdmin() {
     <>
       <AdminHeader
         title="Support"
-        subtitle="Tickets from the help centre, the chat assistant and in-trip SOS alerts. Open SOS alerts are always listed first."
+        subtitle="Tickets from the help centre, the assistant, chauffeur trip reports and in-trip SOS alerts. Open urgent tickets are always listed first."
         action={(
           <TextField select size="small" label="Status" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }} sx={{ minWidth: 160 }}>
             <MenuItem value="">All</MenuItem><MenuItem value="open">Open</MenuItem><MenuItem value="in_progress">In progress</MenuItem><MenuItem value="resolved">Resolved</MenuItem>

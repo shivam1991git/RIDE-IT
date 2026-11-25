@@ -4,6 +4,7 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 const { createApp } = require('../src/app');
 const { connectDB } = require('../src/db');
 const { ensureDefaultCategories } = require('../src/services/fare');
+const { ensureRentalDefaults } = require('../src/services/rentals');
 const { hashPassword } = require('../src/services/auth');
 const { User, Driver, Admin } = require('../src/models/accounts');
 const Car = require('../src/models/Car');
@@ -16,6 +17,7 @@ async function setup() {
     await connectDB(mongo.getUri(), 'ride-it-test');
     await Promise.all(Object.values(mongoose.models).map(model => model.init()));
     await ensureDefaultCategories();
+    await ensureRentalDefaults();
     app = createApp();
     return app;
 }
@@ -28,7 +30,7 @@ async function teardown() {
 async function reset() {
     const collections = await mongoose.connection.db.collections();
     await Promise.all(collections
-        .filter(collection => collection.collectionName !== 'fareconfigs')
+        .filter(collection => !['fareconfigs', 'rentalrates'].includes(collection.collectionName))
         .map(collection => collection.deleteMany({})));
 }
 
@@ -86,9 +88,10 @@ async function driver({ status = 'approved', category = 'mini', online = true } 
     return agent;
 }
 
-async function admin() {
+async function admin(adminRole = 'super') {
     const id = unique();
     const doc = await Admin.create({
+        adminRole,
         fullName: 'Admin One',
         username: `admin_${id}`,
         email: `admin_${id}@example.test`,
@@ -102,6 +105,45 @@ async function admin() {
 
 async function car(overrides = {}) {
     return Car.create({ name: 'Hyundai Creta', image: '/assets/cars/suv.webp', capacity: 5, fuelType: 'Petrol', rentPerHour: 250, ...overrides });
+}
+
+const inDays = days => new Date(Date.now() + days * 24 * 3600 * 1000);
+let plate = 1000;
+
+// A rental car with every compliance document valid for a year.
+async function fleetCar(overrides = {}) {
+    plate += 1;
+    const valid = { expiresOn: inDays(365) };
+    return Car.create({
+        name: 'Honda City',
+        image: '/cars/sedan.svg',
+        category: 'sedan',
+        registrationNumber: `UP65 AB ${plate}`,
+        capacity: 4,
+        luggage: 2,
+        fuelType: 'Petrol',
+        documents: {
+            rc: { number: `RC${plate}` },
+            insurance: { number: `INS${plate}`, ...valid },
+            permit: { number: `PER${plate}`, ...valid },
+            fitness: { number: `FIT${plate}`, ...valid },
+            puc: { number: `PUC${plate}`, ...valid },
+        },
+        ...overrides,
+    });
+}
+
+// An approved chauffeur with a valid licence and police verification.
+async function chauffeur(overrides = {}) {
+    const agent = await driver(overrides);
+    await Driver.updateOne({ _id: agent.doc._id }, {
+        $set: {
+            licenseExpiry: inDays(400),
+            policeVerification: { status: 'verified', verifiedOn: new Date() },
+            ...(overrides.compliance || {}),
+        },
+    });
+    return agent;
 }
 
 const PLACES = {
@@ -122,6 +164,9 @@ module.exports = {
     driver,
     admin,
     car,
+    fleetCar,
+    chauffeur,
+    inDays,
     signIn,
     PLACES,
     PASSWORD,

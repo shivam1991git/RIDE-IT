@@ -11,11 +11,13 @@ import DirectionsCarRounded from '@mui/icons-material/DirectionsCarRounded';
 import StarRounded from '@mui/icons-material/StarRounded';
 import TodayRounded from '@mui/icons-material/TodayRounded';
 import InboxRounded from '@mui/icons-material/InboxRounded';
+import EventAvailableRounded from '@mui/icons-material/EventAvailableRounded';
 import { CardSkeleton, EmptyState, RideExtras, RouteLine, StatCard, StatusChip } from '../../components/ui';
 import BarChart, { lastNDays } from '../../components/BarChart';
 import CarImage from '../../components/CarImage';
 import { get, patch, post } from '../../lib/api';
-import { dateTime, km, money, driverEarning } from '../../lib/format';
+import { dateTime, dateOnly, friendlyDateTime, km, money, driverEarning, RENTAL_TYPES, rentalRoute } from '../../lib/format';
+import { useMeta } from '../../lib/meta';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRealtime } from '../../providers/RealtimeProvider';
 import { useToast } from '../../providers/ToastProvider';
@@ -69,9 +71,47 @@ function RequestCard({ booking, onAccept, busy }) {
   );
 }
 
+// A trip operations has assigned to this chauffeur.
+function AssignmentCard({ booking, onAcknowledge, busy }) {
+  const acknowledged = Boolean(booking.assignment?.acknowledgedAt) || booking.status !== 'confirmed';
+  return (
+    <Card sx={{ p: 2.5, borderColor: acknowledged ? 'divider' : 'warning.main' }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'center' } }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Stack direction="row" spacing={1} sx={{ mb: 1, alignItems: 'center', flexWrap: 'wrap', rowGap: 0.5 }}>
+            <Chip size="small" color="primary" label={booking.reference} />
+            <StatusChip status={booking.status} />
+            <Typography variant="caption" color="text.secondary">{RENTAL_TYPES[booking.rentalType]}</Typography>
+          </Stack>
+          <Typography variant="subtitle1">{friendlyDateTime(booking.start)}</Typography>
+          <Typography variant="body2" color="text.secondary" noWrap>{rentalRoute(booking)}</Typography>
+          <Typography variant="caption" color="text.secondary">{booking.car?.name} · {booking.car?.registrationNumber} · {booking.passengers} pax · {booking.user?.fullName}</Typography>
+        </Box>
+        <Stack direction={{ xs: 'row', sm: 'column' }} spacing={1} sx={{ alignItems: { sm: 'flex-end' } }}>
+          {!acknowledged && <Button variant="contained" onClick={() => onAcknowledge(booking)} disabled={busy}>Acknowledge</Button>}
+          <Button variant={acknowledged ? 'contained' : 'outlined'} component={RouterLink} to={`/driver/jobs/${booking._id}`}>Open</Button>
+        </Stack>
+      </Stack>
+    </Card>
+  );
+}
+
+function Compliance({ driver }) {
+  if (!driver || driver.status !== 'approved') return null;
+  const days = driver.licenseExpiry ? Math.floor((new Date(driver.licenseExpiry) - Date.now()) / 86400000) : null;
+  const messages = [];
+  if (driver.policeVerification?.status !== 'verified') messages.push('Your police verification is not complete yet, so trips cannot be assigned to you. Please share it with operations.');
+  if (days === null) messages.push('Your licence expiry date is missing. Please share your licence with operations.');
+  else if (days < 0) messages.push(`Your driving licence expired on ${dateOnly(driver.licenseExpiry)}. Renew it to get new trips.`);
+  else if (days <= 30) messages.push(`Your driving licence expires on ${dateOnly(driver.licenseExpiry)}. Renew it soon to keep getting trips.`);
+  if (!messages.length) return null;
+  return <Alert severity="warning" sx={{ mb: 3 }}>{messages.join(' ')}</Alert>;
+}
+
 export default function DriverHome() {
   const { account } = useAuth();
   const { connected } = useRealtime();
+  const { ridesEnabled } = useMeta();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const toast = useToast();
@@ -80,13 +120,24 @@ export default function DriverHome() {
   const driver = summary.data?.driver;
   const online = Boolean(driver?.isOnline);
   const approved = driver?.status === 'approved';
-  useLocationSharing(online);
+  useLocationSharing(online && ridesEnabled);
 
   const requests = useQuery({
     queryKey: ['driver', 'requests'],
     queryFn: () => get('/driver/requests'),
-    enabled: approved,
+    enabled: approved && ridesEnabled,
     refetchInterval: online ? (connected ? 30000 : 8000) : false,
+  });
+  const assignments = useQuery({
+    queryKey: ['driver', 'assignments'],
+    queryFn: () => get('/driver/assignments'),
+    enabled: approved,
+    refetchInterval: connected ? 60000 : 15000,
+  });
+  const acknowledge = useMutation({
+    mutationFn: booking => post(`/driver/bookings/${booking._id}/acknowledge`),
+    onSuccess: () => { toast.success('Trip acknowledged'); queryClient.invalidateQueries({ queryKey: ['driver'] }); },
+    onError: error => toast.error(error.message),
   });
   const history = useQuery({ queryKey: ['bookings', 'driver-history'], queryFn: () => get('/bookings?scope=past&limit=5') });
 
@@ -122,7 +173,7 @@ export default function DriverHome() {
           <Typography variant="overline" color="primary">Driver</Typography>
           <Typography variant="h2" component="h1">Hi, {account.fullName.split(' ')[0]}</Typography>
         </Box>
-        <Card
+        {ridesEnabled && <Card
           sx={{
             p: 1.5, pl: 2.5, display: 'flex', alignItems: 'center', gap: 2, borderRadius: 999,
             borderColor: online ? 'success.main' : 'divider',
@@ -135,16 +186,17 @@ export default function DriverHome() {
             <Typography variant="caption" color="text.secondary">{online ? `Receiving ${driver.vehicle?.category?.toUpperCase()} requests` : 'Go online to receive ride requests'}</Typography>
           </Box>
           <Switch checked={online} onChange={e => toggle.mutate(e.target.checked)} disabled={!approved || toggle.isPending} slotProps={{ input: { 'aria-label': 'Online status' } }} />
-        </Card>
+        </Card>}
       </Stack>
 
       {!approved && (
         <Alert severity={driver?.status === 'pending' ? 'info' : 'warning'} sx={{ mb: 3 }}>
           {driver?.status === 'pending'
-            ? 'Your application is being reviewed. You will get a notification as soon as you are approved.'
+            ? 'Your application is being reviewed. Our team checks your licence and police verification; you will be notified once approved.'
             : `Your driver account is ${driver?.status}. Contact support for help.`}
         </Alert>
       )}
+      <Compliance driver={driver} />
       {summary.data?.activeBookingId && (
         <Alert severity="warning" sx={{ mb: 3 }} action={<Button color="inherit" component={RouterLink} to={`/driver/jobs/${summary.data.activeBookingId}`}>Open trip</Button>}>
           You have a trip in progress.
@@ -160,8 +212,19 @@ export default function DriverHome() {
 
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.3fr 1fr' }, gap: 3, alignItems: 'start' }}>
         <Box>
+          <Typography variant="h5" sx={{ mb: 1.5 }}>Your assigned trips</Typography>
+          {!approved ? null : assignments.isLoading ? <CardSkeleton rows={2} height={110} /> : assignments.data?.upcoming?.length ? (
+            <Stack spacing={1.5} sx={{ mb: 3 }}>
+              {assignments.data.upcoming.map(booking => <AssignmentCard key={booking._id} booking={booking} onAcknowledge={b => acknowledge.mutate(b)} busy={acknowledge.isPending} />)}
+            </Stack>
+          ) : (
+            <Box sx={{ mb: 3 }}>
+              <EmptyState icon={EventAvailableRounded} title="No trips assigned yet" body="When operations assigns you a trip it appears here, and you get a notification." />
+            </Box>
+          )}
+          {ridesEnabled && <>
           <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-            <Typography variant="h5">Requests</Typography>
+            <Typography variant="h5">Ride requests</Typography>
             {online && <Chip size="small" label={connected ? 'Live' : 'Refreshing every few seconds'} color={connected ? 'success' : 'default'} variant="outlined" />}
           </Stack>
           {!approved ? null : requests.isLoading ? <CardSkeleton rows={2} height={110} /> : items.length ? (
@@ -174,14 +237,15 @@ export default function DriverHome() {
             <EmptyState
               icon={InboxRounded}
               title={online ? 'Waiting for requests' : 'You are offline'}
-              body={online ? 'New ride requests for your vehicle type appear here instantly.' : 'Switch online to start receiving ride requests. Chauffeur rentals appear here too.'}
+              body={online ? 'New ride requests for your vehicle type appear here instantly.' : 'Switch online to start receiving ride requests.'}
             />
           )}
+          </>}
         </Box>
         <Stack spacing={3}>
           <Card sx={{ p: 2.5 }}>
-            <Typography variant="h6">Earnings, last 7 days</Typography>
-            <Typography variant="caption" color="text.secondary">Fares from completed trips</Typography>
+            <Typography variant="h6">Trips, last 7 days</Typography>
+            <Typography variant="caption" color="text.secondary">Value of completed trips</Typography>
             <Box sx={{ mt: 2 }}><BarChart data={chart} label="Daily earnings" format={money} caption="Driver earnings per day for the last 7 days" /></Box>
           </Card>
           <Card sx={{ p: 2.5 }}>
@@ -191,7 +255,7 @@ export default function DriverHome() {
                 {history.data.items.map(b => (
                   <Stack key={b._id} direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>{b.type === 'ride' ? `${b.pickup?.name} → ${b.drop?.name}` : `${b.car?.name} rental`}</Typography>
+                      <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>{b.type === 'ride' ? `${b.pickup?.name} → ${b.drop?.name}` : `${b.reference || ''} ${RENTAL_TYPES[b.rentalType] || `${b.car?.name} rental`}`}</Typography>
                       <Typography variant="caption" color="text.secondary">{dateTime(b.updatedAt)}</Typography>
                     </Box>
                     <StatusChip status={b.status} />

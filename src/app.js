@@ -51,6 +51,7 @@ function createApp() {
 
     app.use('/api/auth', require('./routes/auth'));
     app.use('/api', require('./routes/catalog'));
+    app.use('/api', require('./routes/rentals').router);
     app.use('/api', require('./routes/booking').router);
     app.use('/api/driver', require('./routes/driver'));
     app.use('/api/admin', require('./routes/admin'));

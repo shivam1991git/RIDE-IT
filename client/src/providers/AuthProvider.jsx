@@ -62,7 +62,7 @@ export function AuthProvider({ children }) {
 
 export const useAuth = () => useContext(AuthContext);
 
-export const homeFor = role => ({ customer: '/ride', driver: '/driver', admin: '/admin' }[role] || '/');
+export const homeFor = role => ({ customer: '/rentals', driver: '/driver', admin: '/admin' }[role] || '/');
 
 export function RequireRole({ roles, children }) {
   const { account, loading } = useAuth();

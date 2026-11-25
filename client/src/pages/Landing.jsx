@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
-  Accordion, AccordionDetails, AccordionSummary, Box, Button, Card, Chip, Container, Stack, Typography,
+  Accordion, AccordionDetails, AccordionSummary, Box, Button, Card, CardActionArea, Chip, Container, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
@@ -11,14 +10,17 @@ import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import PinRounded from '@mui/icons-material/PinRounded';
 import VerifiedUserRounded from '@mui/icons-material/VerifiedUserRounded';
 import CurrencyRupeeRounded from '@mui/icons-material/CurrencyRupeeRounded';
-import SensorsRounded from '@mui/icons-material/SensorsRounded';
+import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
+import SosRounded from '@mui/icons-material/SosRounded';
 import SupportAgentRounded from '@mui/icons-material/SupportAgentRounded';
-import KeyRounded from '@mui/icons-material/KeyRounded';
+import ScheduleRounded from '@mui/icons-material/ScheduleRounded';
+import WbSunnyRounded from '@mui/icons-material/WbSunnyRounded';
+import FlightTakeoffRounded from '@mui/icons-material/FlightTakeoffRounded';
+import SyncAltRounded from '@mui/icons-material/SyncAltRounded';
 import PlaceSearch from '../components/PlaceSearch';
-import VehicleArt from '../components/VehicleArt';
 import HeroVisual from '../components/hero/HeroVisual';
-import { get } from '../lib/api';
-import { money } from '../lib/format';
+import { useRentalOptions } from '../lib/meta';
+import { money, toLocalInput } from '../lib/format';
 import { useAuth } from '../providers/AuthProvider';
 
 const reveal = {
@@ -28,39 +30,59 @@ const reveal = {
   transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
 };
 
-const DESTINATIONS = [
-  { name: 'Kashi Vishwanath Temple', image: '/places/kashi-vishwanath.avif', place: { name: 'Kashi Vishwanath Temple', address: 'Lahori Tola, Varanasi', lat: 25.3109, lng: 83.0107 } },
-  { name: 'Dashashwamedh Ghat', image: '/places/dashashwamedh.jpg', place: { name: 'Dashashwamedh Ghat', address: 'Dashashwamedh, Varanasi', lat: 25.3068, lng: 83.0104 } },
-  { name: 'Ahilya Ghat', image: '/places/ahilya-ghat.jpg', place: { name: 'Ahilya Ghat', address: 'Dashashwamedh, Varanasi', lat: 25.3074, lng: 83.0112 } },
+const SIGHTS = [
+  { name: 'Kashi Vishwanath Temple', image: '/places/kashi-vishwanath.avif' },
+  { name: 'Dashashwamedh Ghat', image: '/places/dashashwamedh.jpg' },
+  { name: 'Ahilya Ghat', image: '/places/ahilya-ghat.jpg' },
 ];
 
 const SAFETY = [
-  { icon: PinRounded, title: 'PIN-verified pickup', body: 'Your trip only starts when you share your 4-digit PIN, so you always get into the right car.' },
-  { icon: VerifiedUserRounded, title: 'Verified drivers', body: 'Every driver’s licence and vehicle is reviewed by our team before they can accept rides.' },
-  { icon: CurrencyRupeeRounded, title: 'Upfront, fixed fares', body: 'The price you see before booking is the price you pay. No surge pricing, ever.' },
-  { icon: SensorsRounded, title: 'Live trip status', body: 'Follow your driver from acceptance to drop-off, with instant updates in the app.' },
+  { icon: VerifiedUserRounded, title: 'Verified chauffeurs', body: 'Every chauffeur’s driving licence and police verification are checked by our team, and expired licences are blocked automatically.' },
+  { icon: DescriptionRounded, title: 'Documented cars', body: 'Registration, insurance, permit, fitness and PUC certificates are tracked for every car. A car with lapsed papers is never assigned.' },
+  { icon: PinRounded, title: 'PIN-verified start', body: 'Your trip only starts when you give your chauffeur the 4-digit PIN from your booking, so you always get into the right car.' },
+  { icon: CurrencyRupeeRounded, title: 'Clear, upfront prices', body: 'See the full breakdown with GST before you book, plus exactly how extra km and hours are charged. No surge pricing.' },
+  { icon: SosRounded, title: 'SOS during your trip', body: 'One tap alerts our safety team with your trip details and lets you call 112 or your trusted contact.' },
+  { icon: SupportAgentRounded, title: 'Real people on call', body: 'Our operations team confirms every booking and is on hand if anything changes on the day.' },
 ];
 
 const FAQ = [
-  ['How is my fare calculated?', 'Each ride type has a base fare plus a rate per kilometre and per minute along the actual road route. A minimum fare applies to very short trips. You see the exact amount before you confirm.'],
-  ['Can I cancel a ride?', 'Yes — any time before the trip starts, from the trip screen. Card payments for cancelled rides are refunded to your card automatically.'],
-  ['How do rentals work?', 'Pick a car and a time window (1 hour to 7 days). Add a chauffeur if you like. The car is reserved for you the moment you book.'],
-  ['Where do you operate?', 'In and around Varanasi — the ghats, Cantt railway station, BHU, Sarnath and the airport.'],
+  ['How does booking work?', 'Choose your trip type, pickup and time, then pick a car and see the full price. Send the request; our team confirms the car and assigns a verified chauffeur, and you are notified with their details.'],
+  ['What is included in the price?', 'The car, fuel, the chauffeur and GST, up to the hours and kilometres of your package. Outstation trips include the driver allowance and night charges. Tolls, parking and interstate taxes are paid at actuals.'],
+  ['Can I cancel or change my booking?', 'Yes, from your booking page. Cancelling before we confirm is always free. After confirmation: full refund more than 24 h before pickup, 50% between 6 and 24 h, none under 6 h. You can also change the pickup time if the car and chauffeur are free.'],
+  ['How do I pay?', 'By UPI or cash. Pay an advance after we confirm, or pay your chauffeur at the end. Your booking always shows what is paid and due, and you can download an invoice.'],
+  ['Can I drive the car myself?', 'Not yet. Every RIDE-IT car comes with a verified chauffeur.'],
 ];
 
-function BookingPanel() {
+const QUICK_TYPES = [
+  ['hourly', 'Hourly', ScheduleRounded],
+  ['full_day', 'Full day', WbSunnyRounded],
+  ['airport', 'Airport', FlightTakeoffRounded],
+  ['outstation_round', 'Outstation', SyncAltRounded],
+];
+
+function QuickBook() {
   const navigate = useNavigate();
+  const [type, setType] = useState('hourly');
   const [pickup, setPickup] = useState(null);
-  const [drop, setDrop] = useState(null);
-  const go = () => navigate('/ride', { state: { pickup, drop } });
+  const [start, setStart] = useState(() => {
+    const date = new Date(Date.now() + 3 * 3600e3);
+    date.setMinutes(0, 0, 0);
+    return toLocalInput(date);
+  });
+  const go = () => navigate(`/rentals?type=${type}`, { state: { trip: { pickup, start } } });
   return (
     <Card sx={{ p: { xs: 2, sm: 3 }, borderRadius: 6, maxWidth: 520, boxShadow: theme => `0 30px 80px -40px ${alpha(theme.palette.primary.main, 0.45)}` }}>
       <Stack spacing={1.5}>
-        <PlaceSearch label="Pickup" kind="pickup" value={pickup} onChange={setPickup} allowLocate />
-        <PlaceSearch label="Where to?" value={drop} onChange={setDrop} />
-        <Button size="large" variant="contained" endIcon={<ArrowForwardRounded />} onClick={go} disabled={!pickup || !drop}>
-          See prices
-        </Button>
+        <ToggleButtonGroup exclusive fullWidth size="small" value={type} onChange={(e, value) => value && setType(value)} aria-label="Trip type">
+          {QUICK_TYPES.map(([key, label, Icon]) => (
+            <ToggleButton key={key} value={key} sx={{ flexDirection: 'column', gap: 0.25, py: 1, textTransform: 'none' }}>
+              <Icon fontSize="small" /><Typography variant="caption" sx={{ fontWeight: 600 }}>{label}</Typography>
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+        <PlaceSearch label="Pickup address" kind="pickup" value={pickup} onChange={setPickup} allowLocate />
+        <TextField type="datetime-local" label="Pickup date & time" value={start} onChange={e => setStart(e.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
+        <Button size="large" variant="contained" endIcon={<ArrowForwardRounded />} onClick={go}>See cars & prices</Button>
       </Stack>
     </Card>
   );
@@ -68,8 +90,15 @@ function BookingPanel() {
 
 export default function Landing() {
   const { role } = useAuth();
-  const { data } = useQuery({ queryKey: ['fares'], queryFn: () => get('/fares/categories'), staleTime: 10 * 60 * 1000 });
-  const navigate = useNavigate();
+  const { data: options } = useRentalOptions();
+  const classes = options?.classes || [];
+  const cheapest = key => (classes.length ? Math.min(...classes.map(c => c[key])) : null);
+  const TYPES = [
+    { key: 'hourly', title: 'Hourly in the city', body: '4 or 6 hours with a chauffeur for shopping, meetings or errands. Your car waits wherever you stop.', price: cheapest('hourlyFrom'), icon: ScheduleRounded },
+    { key: 'full_day', title: 'Full day darshan', body: '8 or 12 hours across temples, ghats and Sarnath at your own pace. Ideal for families.', price: cheapest('fullDayFrom'), icon: WbSunnyRounded },
+    { key: 'airport', title: 'Airport transfers', body: 'Fixed-price drops and pickups at Babatpur airport, with 30 minutes of free waiting for your flight.', price: cheapest('airportFare'), icon: FlightTakeoffRounded },
+    { key: 'outstation_round', title: 'Outstation trips', body: 'One-way or round trips to Prayagraj, Ayodhya, Bodh Gaya and more, with driver allowance included.', perKm: cheapest('perKm'), icon: SyncAltRounded },
+  ];
 
   return (
     <>
@@ -80,13 +109,13 @@ export default function Landing() {
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.05fr 1fr' }, gap: { xs: 3, md: 4 }, alignItems: 'center' }}>
             <Box>
               <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-                <Chip label="Now riding across Varanasi" size="small" icon={<Box component="span" className="rid-pulse" sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'secondary.main', color: 'secondary.main', ml: '10px !important' }} />} sx={{ mb: 2.5, bgcolor: 'action.hover' }} />
+                <Chip label="Chauffeur-driven cars in Varanasi" size="small" icon={<Box component="span" className="rid-pulse" sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'secondary.main', color: 'secondary.main', ml: '10px !important' }} />} sx={{ mb: 2.5, bgcolor: 'action.hover' }} />
                 <Typography variant="h1">
-                  Your city,<br />
-                  <Box component="span" sx={{ color: 'primary.main' }}>one tap</Box> away.
+                  Your car and driver,<br />
+                  <Box component="span" sx={{ color: 'primary.main' }}>sorted</Box> in minutes.
                 </Typography>
                 <Typography color="text.secondary" sx={{ mt: 2.5, mb: 4, fontSize: { xs: '1.05rem', md: '1.15rem' }, maxWidth: 480 }}>
-                  Autos, cabs and hourly rentals from the ghats to the airport. Upfront fares, verified drivers and live trip status.
+                  Hourly and full-day hire, airport transfers and outstation trips, each with a verified chauffeur. See the full price before you book.
                 </Typography>
               </motion.div>
               {role === 'driver' || role === 'admin' ? (
@@ -95,7 +124,7 @@ export default function Landing() {
                 </Button>
               ) : (
                 <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}>
-                  <BookingPanel />
+                  <QuickBook />
                 </motion.div>
               )}
             </Box>
@@ -104,44 +133,27 @@ export default function Landing() {
         </Container>
       </Box>
 
-      {/* Ride types bento */}
-      <Container maxWidth="lg" id="fares" sx={{ py: { xs: 6, md: 10 }, scrollMarginTop: 80 }}>
+      {/* Trip types */}
+      <Container maxWidth="lg" id="services" sx={{ py: { xs: 6, md: 10 }, scrollMarginTop: 80 }}>
         <motion.div {...reveal}>
-          <Typography variant="overline" color="primary">Ride types</Typography>
-          <Typography variant="h2" sx={{ mb: 1 }}>The right ride for every trip</Typography>
-          <Typography color="text.secondary" sx={{ mb: 5, maxWidth: 560 }}>Live prices from our fare engine. Pick a vehicle when you book and see the exact fare first.</Typography>
+          <Typography variant="overline" color="primary">What we offer</Typography>
+          <Typography variant="h2" sx={{ mb: 1 }}>A chauffeur for every kind of trip</Typography>
+          <Typography color="text.secondary" sx={{ mb: 5, maxWidth: 560 }}>Hatchbacks, sedans, SUVs and 7-seaters. Prices include fuel, the chauffeur and GST.</Typography>
         </motion.div>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 2 }}>
-          {(data?.categories || []).map((category, index) => (
-            <motion.div key={category.key} {...reveal} transition={{ ...reveal.transition, delay: index * 0.06 }} style={{ height: '100%' }}>
-              <Card
-                sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column', transition: 'transform .25s, border-color .25s', '&:hover': { transform: 'translateY(-4px)', borderColor: 'primary.main' } }}
-              >
-                <Box sx={{ color: 'text.primary', mb: 2 }}><VehicleArt kind={category.key} width={140} /></Box>
-                <Typography variant="h5">{category.name}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2, flex: 1 }}>{category.description}</Typography>
-                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
-                  <Chip size="small" label={`${category.capacity} seats`} variant="outlined" />
-                  <Chip size="small" label={`₹${category.perKm}/km`} variant="outlined" />
-                </Stack>
-                <Typography variant="body2" sx={{ mt: 2 }}>From <b>{money(category.minFare)}</b></Typography>
+          {TYPES.map(({ key, title, body, price, perKm, icon: Icon }, index) => (
+            <motion.div key={key} {...reveal} transition={{ ...reveal.transition, delay: index * 0.06 }} style={{ height: '100%' }}>
+              <Card sx={{ height: '100%', transition: 'transform .25s, border-color .25s', '&:hover': { transform: 'translateY(-4px)', borderColor: 'primary.main' } }}>
+                <CardActionArea component={RouterLink} to={`/rentals?type=${key}`} sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                  <Box sx={{ width: 44, height: 44, borderRadius: 3, display: 'grid', placeItems: 'center', bgcolor: theme => alpha(theme.palette.primary.main, 0.12), color: 'primary.main', mb: 2 }}><Icon /></Box>
+                  <Typography variant="h5">{title}</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 2, flex: 1 }}>{body}</Typography>
+                  {price ? <Typography variant="body2">From <b>{money(price)}</b></Typography> : null}
+                  {perKm ? <Typography variant="body2">From <b>₹{perKm}/km</b></Typography> : null}
+                </CardActionArea>
               </Card>
             </motion.div>
           ))}
-          <motion.div {...reveal} style={{ gridColumn: '1 / -1' }}>
-            <Card sx={{ p: { xs: 3, md: 4 }, display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.4fr 1fr' }, gap: 3, alignItems: 'center', background: theme => `linear-gradient(120deg, ${alpha(theme.palette.secondary.main, 0.14)}, transparent 60%)` }}>
-              <Box>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}><KeyRounded color="secondary" /><Typography variant="overline" color="secondary">Rentals</Typography></Stack>
-                <Typography variant="h3">Need a car for the day?</Typography>
-                <Typography color="text.secondary" sx={{ mt: 1, mb: 3 }}>Book by the hour, from 1 hour to 7 days. Drive yourself or add a chauffeur for ₹{data?.rentalDriverPerHour ?? 30}/hour.</Typography>
-                <Button variant="outlined" color="secondary" component={RouterLink} to="/rentals" endIcon={<ArrowForwardRounded />}>Browse rental cars</Button>
-              </Box>
-              <Stack direction="row" spacing={-3} sx={{ justifyContent: 'center', color: 'text.primary', minWidth: 0, overflow: 'hidden', '& > svg': { flex: '0 1 auto' } }}>
-                <VehicleArt kind="suv" color="#2EC4B6" width={170} />
-                <VehicleArt kind="sedan" color="#F3F4F6" width={150} />
-              </Stack>
-            </Card>
-          </motion.div>
         </Box>
       </Container>
 
@@ -150,14 +162,14 @@ export default function Landing() {
         <Container maxWidth="lg" sx={{ py: { xs: 6, md: 10 } }}>
           <motion.div {...reveal}>
             <Typography variant="overline" color="primary">How it works</Typography>
-            <Typography variant="h2" sx={{ mb: 5 }}>From “where to?” to drop-off</Typography>
+            <Typography variant="h2" sx={{ mb: 5 }}>From request to drop-off</Typography>
           </motion.div>
           <Box component="ol" sx={{ listStyle: 'none', p: 0, m: 0, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 3 }}>
             {[
-              ['Set your route', 'Search a place, pick a saved spot, or use your current location.'],
-              ['Compare & choose', 'See the exact fare for Auto, Mini, Sedan and SUV side by side.'],
-              ['Get matched', 'A verified driver nearby accepts. Watch them approach live.'],
-              ['Share your PIN', 'Your trip starts only with your PIN. Pay by cash or card.'],
+              ['Choose your trip', 'Pick the trip type, pickup and time, then a car. The full price with GST is shown before you book.'],
+              ['We confirm', 'Our team checks the car and assigns a verified chauffeur. You get their name, number and the car’s plate.'],
+              ['Meet your chauffeur', 'Share your 4-digit PIN to start. Your chauffeur stays with you for the whole package.'],
+              ['Pay your way', 'UPI or cash, in advance or at the end. Your invoice is ready the moment the trip ends.'],
             ].map(([title, body], index) => (
               <motion.li key={title} {...reveal} transition={{ ...reveal.transition, delay: index * 0.08 }}>
                 <Typography sx={{ fontFamily: 'Sora', fontWeight: 700, fontSize: 44, lineHeight: 1, color: 'primary.main', opacity: 0.9 }}>0{index + 1}</Typography>
@@ -171,58 +183,61 @@ export default function Landing() {
 
       {/* Safety */}
       <Container maxWidth="lg" id="safety" sx={{ py: { xs: 6, md: 10 }, scrollMarginTop: 80 }}>
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '0.9fr 1.1fr' }, gap: { xs: 4, md: 8 } }}>
-          <motion.div {...reveal}>
-            <Typography variant="overline" color="primary">Safety & trust</Typography>
-            <Typography variant="h2">Built so you can relax and ride</Typography>
-            <Typography color="text.secondary" sx={{ mt: 2 }}>Every booking is checked on our servers — prices, permissions and trip status — not just in the app.</Typography>
-            <Button sx={{ mt: 3 }} variant="outlined" component={RouterLink} to="/support" startIcon={<SupportAgentRounded />}>Visit the help centre</Button>
-          </motion.div>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
-            {SAFETY.map(({ icon: Icon, title, body }, index) => (
-              <motion.div key={title} {...reveal} transition={{ ...reveal.transition, delay: index * 0.06 }}>
-                <Card sx={{ p: 3, height: '100%' }}>
-                  <Box sx={{ width: 44, height: 44, borderRadius: 3, display: 'grid', placeItems: 'center', bgcolor: theme => alpha(theme.palette.secondary.main, 0.14), color: 'secondary.main', mb: 2 }}><Icon /></Box>
-                  <Typography variant="h6">{title}</Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{body}</Typography>
-                </Card>
-              </motion.div>
-            ))}
-          </Box>
+        <motion.div {...reveal}>
+          <Typography variant="overline" color="primary">Safety & trust</Typography>
+          <Typography variant="h2" sx={{ mb: 1 }}>Checked before every trip</Typography>
+          <Typography color="text.secondary" sx={{ mb: 4, maxWidth: 620 }}>Compliance is enforced by the system, not just promised: a chauffeur or car with lapsed documents cannot be assigned.</Typography>
+        </motion.div>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(3, 1fr)' }, gap: 2 }}>
+          {SAFETY.map(({ icon: Icon, title, body }, index) => (
+            <motion.div key={title} {...reveal} transition={{ ...reveal.transition, delay: index * 0.05 }}>
+              <Card sx={{ p: 3, height: '100%' }}>
+                <Box sx={{ width: 44, height: 44, borderRadius: 3, display: 'grid', placeItems: 'center', bgcolor: theme => alpha(theme.palette.secondary.main, 0.14), color: 'secondary.main', mb: 2 }}><Icon /></Box>
+                <Typography variant="h6">{title}</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{body}</Typography>
+              </Card>
+            </motion.div>
+          ))}
         </Box>
       </Container>
 
       {/* Destinations */}
       <Container maxWidth="lg" sx={{ pb: { xs: 6, md: 10 } }}>
         <motion.div {...reveal}>
-          <Typography variant="overline" color="primary">Explore Kashi</Typography>
-          <Typography variant="h2" sx={{ mb: 4 }}>Popular rides this week</Typography>
+          <Typography variant="overline" color="primary">Explore Kashi and beyond</Typography>
+          <Typography variant="h2" sx={{ mb: 4 }}>Where our guests go</Typography>
         </motion.div>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.3fr 1fr' }, gridTemplateRows: { md: '240px 240px' }, gap: 2 }}>
-          {DESTINATIONS.map((destination, index) => (
+          {SIGHTS.map((sight, index) => (
             <Box
-              key={destination.name}
-              component={motion.button}
-              {...reveal}
-              onClick={() => navigate('/ride', { state: { drop: destination.place } })}
+              key={sight.name}
+              component={RouterLink}
+              to="/rentals?type=full_day"
               sx={{
-                position: 'relative', overflow: 'hidden', borderRadius: 5, border: 0, p: 0, cursor: 'pointer', textAlign: 'left', color: '#fff',
-                minHeight: 220, gridRow: { md: index === 0 ? 'span 2' : 'auto' },
+                position: 'relative', overflow: 'hidden', borderRadius: 5, color: '#fff', textDecoration: 'none', minHeight: 220, gridRow: { md: index === 0 ? 'span 2' : 'auto' },
                 '& img': { transition: 'transform .6s cubic-bezier(.22,1,.36,1)' }, '&:hover img': { transform: 'scale(1.05)' },
               }}
             >
-              <Box component="img" src={destination.image} alt={destination.name} loading="lazy" sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+              <Box component="img" src={sight.image} alt={sight.name} loading="lazy" sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
               <Box sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 40%, rgba(0,0,0,.75))' }} />
               <Stack direction="row" sx={{ position: 'absolute', left: 20, right: 20, bottom: 18, justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                <Typography variant="h5" sx={{ color: '#fff' }}>{destination.name}</Typography>
-                <Chip label="Ride here" size="small" sx={{ bgcolor: 'primary.main', color: 'primary.contrastText' }} />
+                <Typography variant="h5" sx={{ color: '#fff' }}>{sight.name}</Typography>
+                <Chip label="Full day with chauffeur" size="small" sx={{ bgcolor: 'primary.main', color: 'primary.contrastText' }} />
               </Stack>
             </Box>
           ))}
         </Box>
+        {options?.destinations?.length > 0 && (
+          <Stack direction="row" sx={{ mt: 3, flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
+            <Typography variant="subtitle2" sx={{ mr: 1 }}>Outstation:</Typography>
+            {options.destinations.map(item => (
+              <Chip key={item.key} label={item.name} component={RouterLink} to="/rentals?type=outstation_round" clickable variant="outlined" />
+            ))}
+          </Stack>
+        )}
       </Container>
 
-      {/* FAQ + driver CTA */}
+      {/* FAQ + chauffeur CTA */}
       <Container maxWidth="lg">
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: { xs: 4, md: 6 } }}>
           <Box>
@@ -237,9 +252,9 @@ export default function Landing() {
           </Box>
           <Card sx={{ p: { xs: 3, md: 5 }, alignSelf: 'start', bgcolor: 'primary.main', color: 'primary.contrastText', border: 0 }}>
             <Typography variant="overline" sx={{ opacity: 0.8 }}>Drive with RIDE-IT</Typography>
-            <Typography variant="h3" sx={{ color: 'inherit', mt: 1 }}>Earn on your own schedule</Typography>
-            <Typography sx={{ mt: 1.5, mb: 3, opacity: 0.85 }}>Sign up with your licence and vehicle. Once our team verifies you, go online whenever you like.</Typography>
-            <Button variant="contained" component={RouterLink} to="/drive" sx={{ bgcolor: '#120C02', color: '#fff', '&:hover': { bgcolor: '#2a2216' } }} endIcon={<ArrowForwardRounded />}>Become a driver</Button>
+            <Typography variant="h3" sx={{ color: 'inherit', mt: 1 }}>Work as a chauffeur</Typography>
+            <Typography sx={{ mt: 1.5, mb: 3, opacity: 0.85 }}>Apply with your driving licence. Once our team verifies your licence and police verification, trips are assigned to you in the app.</Typography>
+            <Button variant="contained" component={RouterLink} to="/drive" sx={{ bgcolor: '#120C02', color: '#fff', '&:hover': { bgcolor: '#2a2216' } }} endIcon={<ArrowForwardRounded />}>Apply now</Button>
           </Card>
         </Box>
       </Container>

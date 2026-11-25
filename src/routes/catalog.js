@@ -5,6 +5,7 @@ const Car = require('../models/Car');
 const { validate, limiter, idParams } = require('../middleware/common');
 const geo = require('../services/geo');
 const fare = require('../services/fare');
+const rentals = require('../services/rentals');
 const { z } = require('../validation');
 const { asyncHandler, notFound } = require('../utils/http');
 
@@ -12,6 +13,16 @@ const router = express.Router();
 const geoLimiter = limiter({ windowMs: 60 * 1000, limit: 60, message: 'Too many location lookups. Please wait a moment.' });
 
 router.get('/geo/service-area', (req, res) => res.json({ serviceArea: config.serviceArea }));
+
+// What the web app should offer: Phase 1 is chauffeur rentals only.
+router.get('/meta', asyncHandler(async (req, res) => {
+    const settings = await rentals.getSettings();
+    res.json({
+        ridesEnabled: config.ridesEnabled,
+        serviceArea: config.serviceArea,
+        support: { phone: settings.supportPhone, email: settings.supportEmail },
+    });
+}));
 
 router.get('/geo/popular', (req, res) => res.json({ places: geo.LANDMARKS }));
 
@@ -37,13 +48,14 @@ router.get('/fares/categories', asyncHandler(async (req, res) => {
 }));
 
 router.get('/cars', asyncHandler(async (req, res) => {
-    const cars = await Car.find({ active: true }).sort({ rentPerHour: 1 });
+    // Compliance documents and owners are internal; never expose them publicly.
+    const cars = await Car.find({ active: true, maintenance: { $ne: true } }).select('-documents -owner').sort({ category: 1, name: 1 });
     res.json({ cars });
 }));
 
 // Busy intervals only — never booking ids or customer details.
 router.get('/cars/:id', validate({ params: idParams }), asyncHandler(async (req, res) => {
-    const car = await Car.findOne({ _id: req.params.id, active: true }).select('+slots');
+    const car = await Car.findOne({ _id: req.params.id, active: true }).select('+slots -documents -owner');
     if (!car) throw notFound('Car not found');
     const now = new Date();
     const busy = car.slots

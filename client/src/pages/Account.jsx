@@ -11,6 +11,7 @@ import { PasswordField, rules } from './auth/fields';
 import { api, del, fieldErrors, patch, post } from '../lib/api';
 import { useAuth } from '../providers/AuthProvider';
 import { useToast } from '../providers/ToastProvider';
+import { dateOnly } from '../lib/format';
 
 function Section({ title, subtitle, children }) {
   return (
@@ -152,7 +153,21 @@ export default function Account() {
             <TrustedContact />
           </Section>
         )}
-        {account.role === 'driver' && vehicle && (
+        {account.role === 'driver' && (
+          <Section title="Licence & verification" subtitle="Kept up to date by our operations team. Contact support if anything here is wrong.">
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+              <Chip label={`Licence ${account.drivingLicenseNumber}`} variant="outlined" />
+              <Chip
+                color={!account.licenseExpiry || new Date(account.licenseExpiry) < new Date() ? 'error' : 'default'}
+                label={account.licenseExpiry ? `Valid until ${dateOnly(account.licenseExpiry)}` : 'Licence expiry not recorded'}
+              />
+              <Chip color={account.policeVerification?.status === 'verified' ? 'success' : 'warning'} label={`Police verification: ${account.policeVerification?.status || 'pending'}`} />
+              <Chip label={`Account: ${account.status}`} variant="outlined" />
+              {account.emergencyContact?.name && <Chip label={`Emergency: ${account.emergencyContact.name} · ${account.emergencyContact.phone}`} variant="outlined" />}
+            </Stack>
+          </Section>
+        )}
+        {account.role === 'driver' && vehicle?.category && (
           <Section title="Vehicle" subtitle="Contact support to change your registered vehicle.">
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
               <Chip label={vehicle.category?.toUpperCase()} color="primary" />

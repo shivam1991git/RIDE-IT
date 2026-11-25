@@ -24,11 +24,22 @@ async function resolveAuth(req) {
     }
     if (payload.typ) throw unauthorized('Invalid session');
 
-    const account = await accountModel(payload.role).findById(payload.sub).select('tokenVersion status').lean();
+    const account = await accountModel(payload.role).findById(payload.sub).select('tokenVersion status adminRole').lean();
     if (!account || (account.tokenVersion || 0) !== payload.tv) throw unauthorized('Your session is no longer valid');
     if (account.status === 'suspended') throw forbidden('Your account is suspended. Contact support.');
 
-    return { id: payload.sub, role: payload.role, tv: payload.tv, status: account.status };
+    const auth = { id: payload.sub, role: payload.role, tv: payload.tv, status: account.status };
+    // Read fresh on every request, so a role change applies immediately.
+    if (payload.role === 'admin') auth.adminRole = account.adminRole || 'super';
+    return auth;
+}
+
+// Limits an admin route to some admin roles (super, operations, support).
+function allowAdmin(...adminRoles) {
+    return (req, res, next) => {
+        if (req.auth?.role === 'admin' && adminRoles.includes(req.auth.adminRole)) return next();
+        return next(forbidden('Your admin role does not allow this action'));
+    };
 }
 
 function requireAuth(...roles) {
@@ -54,4 +65,4 @@ async function optionalAuth(req, res, next) {
     next();
 }
 
-module.exports = { requireAuth, optionalAuth, resolveAuth };
+module.exports = { requireAuth, optionalAuth, resolveAuth, allowAdmin };

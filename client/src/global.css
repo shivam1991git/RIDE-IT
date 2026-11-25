@@ -42,3 +42,10 @@ a { color: inherit; }
   content: ''; position: absolute; inset: 0; border-radius: inherit;
   background: currentColor; animation: rid-pulse 1.6s ease-out infinite;
 }
+
+/* Invoices and booking summaries print without the site chrome. */
+@media print {
+  header, footer, .no-print, .MuiFab-root { display: none !important; }
+  body { background: #fff !important; }
+  .print-area { border: 0 !important; padding: 0 !important; }
+}

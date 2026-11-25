@@ -1,5 +1,27 @@
-import { Box, Pagination, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
+import { Box, Chip, Pagination, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import { CardSkeleton } from '../../components/ui';
+import { useAuth } from '../../providers/AuthProvider';
+import { dateOnly } from '../../lib/format';
+
+// What the signed-in admin may do. The API enforces the same rules; this only
+// hides controls that would be refused.
+export function useAdminRole() {
+  const { account } = useAuth();
+  const role = account?.adminRole || 'super';
+  return { role, isSuper: role === 'super', canOperate: role === 'super' || role === 'operations' };
+}
+
+// "Expired" / "12 days left" / date, for document and licence expiry dates.
+export function ExpiryChip({ date, label, missing = 'Not recorded' }) {
+  if (!date) return <Chip size="small" color="error" variant="outlined" label={label ? `${label}: ${missing}` : missing} />;
+  const days = Math.floor((new Date(date) - Date.now()) / 86400000);
+  const color = days < 0 ? 'error' : days <= 30 ? 'warning' : 'default';
+  const text = days < 0 ? `expired ${dateOnly(date)}` : days <= 30 ? `${days} days left` : dateOnly(date);
+  return <Chip size="small" color={color} variant={color === 'default' ? 'outlined' : 'filled'} label={label ? `${label}: ${text}` : text} />;
+}
+
+// Converts a stored date to the yyyy-mm-dd value a date input expects.
+export const toDateInput = value => (value ? new Date(new Date(value).getTime() + 5.5 * 3600e3).toISOString().slice(0, 10) : '');
 
 export function AdminHeader({ title, subtitle, action }) {
   return (

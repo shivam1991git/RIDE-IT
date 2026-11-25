@@ -97,11 +97,49 @@ const driverSchema = buildSchema({
         at: Date,
     },
     rating: { type: ratingSchema, default: () => ({}) },
+
+    // Chauffeur compliance. An expired licence or missing police verification
+    // blocks new assignments (see services/rentals#driverIssue).
+    licenseExpiry: Date,
+    policeVerification: {
+        status: { type: String, enum: ['pending', 'verified', 'failed'], default: 'pending' },
+        verifiedOn: Date,
+        reference: { type: String, trim: true, maxlength: 60 },
+    },
+    emergencyContact: {
+        name: { type: String, trim: true, maxlength: 60 },
+        phone: { type: String, trim: true, maxlength: 15 },
+    },
+    // Same atomic reservation lock as cars: assigned trips hold the driver's time.
+    slots: {
+        type: [new mongoose.Schema({
+            start: { type: Date, required: true },
+            end: { type: Date, required: true },
+            booking: { type: mongoose.Schema.Types.ObjectId, ref: 'bookings', required: true },
+            active: { type: Boolean, default: true },
+        }, { _id: false })],
+        default: [],
+        select: false,
+    },
 });
 driverSchema.index({ status: 1, isOnline: 1, 'vehicle.category': 1 });
+driverSchema.set('toJSON', {
+    transform: (doc, ret) => {
+        withRatingAverage(doc, ret);
+        delete ret.slots;
+        return ret;
+    },
+});
+
+// super: everything, including the admin team, pricing and settings.
+// operations: day-to-day bookings, fleet, drivers and payments.
+// support: tickets, plus read-only access to bookings and people.
+const ADMIN_ROLES = ['super', 'operations', 'support'];
 
 const adminSchema = buildSchema({
     status: { type: String, enum: ['active', 'suspended'], default: 'active' },
+    // Admins created before roles existed are treated as super admins.
+    adminRole: { type: String, enum: ADMIN_ROLES, default: 'super' },
 });
 
 const User = mongoose.model('user', userSchema);
@@ -123,6 +161,7 @@ module.exports = {
     Admin,
     ROLES,
     VEHICLE_CATEGORIES,
+    ADMIN_ROLES,
     CASE_INSENSITIVE,
     accountModel,
     publicRating,

@@ -7,6 +7,8 @@ process.env.GEO_PROVIDER = 'offline';
 process.env.RATE_LIMIT_DISABLED = 'true';
 process.env.STRIPE_SECRET_KEY = '';
 process.env.AI_BASE_URL = '';
+// Instant rides are off in production for Phase 1, but their tests still run.
+process.env.RIDES_ENABLED = 'true';
 
 // Use the locally installed mongod binary (an isolated throwaway instance on a
 // random port and temp directory) instead of downloading one.

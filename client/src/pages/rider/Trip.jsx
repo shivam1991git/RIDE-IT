@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
   Alert, Avatar, Box, Button, Chip, Container, Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton,
-  Rating, Stack, Step, StepLabel, Stepper, TextField, Tooltip, Typography,
+  Stack, Step, StepLabel, Stepper, TextField, Tooltip, Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import CallRounded from '@mui/icons-material/CallRounded';
@@ -13,22 +13,20 @@ import CreditCardRounded from '@mui/icons-material/CreditCardRounded';
 import EventRounded from '@mui/icons-material/EventRounded';
 import ShareRounded from '@mui/icons-material/ShareRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
-import SosRounded from '@mui/icons-material/SosRounded';
-import SmsRounded from '@mui/icons-material/SmsRounded';
 import MapLayout from '../../components/MapLayout';
-import CarImage from '../../components/CarImage';
 import { CardSkeleton, FareBreakdown, RouteLine, StatusChip } from '../../components/ui';
+import { RateDriver, SosButton } from '../../components/TripActions';
+import RentalBooking from './RentalBooking';
 import { del, get, post } from '../../lib/api';
-import { dateTime, friendlyDateTime, km, minutes, PREFERENCES } from '../../lib/format';
+import { friendlyDateTime, km, minutes, PREFERENCES } from '../../lib/format';
 import { useAuth } from '../../providers/AuthProvider';
 import { useRealtime } from '../../providers/RealtimeProvider';
 import { useToast } from '../../providers/ToastProvider';
 
 const PaymentDialog = lazy(() => import('../../components/PaymentDialog'));
 
-const LIVE = ['scheduled', 'requested', 'accepted', 'arrived', 'in_progress', 'pending_driver'];
+const LIVE = ['scheduled', 'requested', 'accepted', 'arrived', 'in_progress', 'pending_driver', 'pending_approval', 'confirmed'];
 const SHAREABLE = ['scheduled', 'requested', 'accepted', 'arrived', 'in_progress'];
-const SOS_STATUSES = ['accepted', 'arrived', 'in_progress'];
 
 function ScheduledCard({ booking }) {
   return (
@@ -98,67 +96,6 @@ function ShareTrip({ booking }) {
   );
 }
 
-function currentPosition() {
-  return new Promise(resolve => {
-    if (!navigator.geolocation) return resolve(undefined);
-    navigator.geolocation.getCurrentPosition(
-      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => resolve(undefined),
-      { timeout: 4000, maximumAge: 60000 },
-    );
-    return undefined;
-  });
-}
-
-function SosButton({ booking }) {
-  const [open, setOpen] = useState(false);
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const sos = useMutation({
-    mutationFn: async () => post(`/bookings/${booking._id}/sos`, { location: await currentPosition() }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['booking', booking._id] }),
-    onError: error => toast.error(error.message),
-  });
-  if (!SOS_STATUSES.includes(booking.status)) return null;
-  const result = sos.data;
-  const smsBody = result ? encodeURIComponent(`I need help. Follow my RIDE-IT trip live: ${result.shareUrl}`) : '';
-  return (
-    <>
-      <Button color="error" variant="contained" startIcon={<SosRounded />} onClick={() => setOpen(true)} sx={{ fontWeight: 700 }}>Emergency SOS</Button>
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle sx={{ color: 'error.main' }}>{result ? 'Help is on the way' : 'Need urgent help?'}</DialogTitle>
-        <DialogContent>
-          {!result ? (
-            <Typography color="text.secondary">
-              This alerts the RIDE-IT safety team right away with your trip and location, and turns on live trip sharing.
-              If you are in immediate danger, call 112 first.
-            </Typography>
-          ) : (
-            <Stack spacing={1.5}>
-              <Alert severity="success">Our safety team has been alerted and will contact you.</Alert>
-              <Button fullWidth color="error" variant="contained" size="large" startIcon={<CallRounded />} href={`tel:${result.emergencyNumber}`}>Call {result.emergencyNumber} (emergency)</Button>
-              {result.trustedContact ? (
-                <Button fullWidth variant="outlined" startIcon={<SmsRounded />} href={`sms:${result.trustedContact.phone}?body=${smsBody}`}>Text {result.trustedContact.name} your live trip</Button>
-              ) : (
-                <Typography variant="caption" color="text.secondary">Tip: add a trusted contact in your profile to message them in one tap.</Typography>
-              )}
-            </Stack>
-          )}
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          {!result ? (
-            <>
-              <Button href="tel:112" color="error">Call 112</Button>
-              <Box sx={{ flex: 1 }} />
-              <Button onClick={() => setOpen(false)}>Cancel</Button>
-              <Button color="error" variant="contained" onClick={() => sos.mutate()} disabled={sos.isPending}>{sos.isPending ? 'Sending…' : 'Send SOS'}</Button>
-            </>
-          ) : <Button onClick={() => setOpen(false)}>Close</Button>}
-        </DialogActions>
-      </Dialog>
-    </>
-  );
-}
 const RIDE_STEPS = [['requested', 'Requested'], ['accepted', 'Driver assigned'], ['arrived', 'Driver arrived'], ['in_progress', 'On trip'], ['completed', 'Completed']];
 
 function Searching() {
@@ -205,29 +142,6 @@ function Pin({ pin }) {
       <Typography variant="overline" color="text.secondary">Share this PIN with your driver to start</Typography>
       <Typography aria-label={`Ride PIN ${pin.split('').join(' ')}`} sx={{ fontFamily: 'Sora', fontWeight: 700, fontSize: 40, letterSpacing: '0.4em', ml: '0.4em', color: 'primary.main', fontVariantNumeric: 'tabular-nums' }}>{pin}</Typography>
     </Box>
-  );
-}
-
-function RateDriver({ booking }) {
-  const [score, setScore] = useState(5);
-  const [comment, setComment] = useState('');
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const rate = useMutation({
-    mutationFn: () => post(`/bookings/${booking._id}/rate`, { score, comment: comment || undefined }),
-    onSuccess: () => { toast.success('Thanks for your feedback!'); queryClient.invalidateQueries({ queryKey: ['booking', booking._id] }); },
-    onError: error => toast.error(error.message),
-  });
-  if (booking.ratingByCustomer) {
-    return <Alert severity="success" icon={<StarRounded />}>You rated this trip {booking.ratingByCustomer.score}★</Alert>;
-  }
-  return (
-    <Stack spacing={1.5} sx={{ p: 2, borderRadius: 4, bgcolor: 'action.hover' }}>
-      <Typography variant="subtitle1">How was your trip with {booking.driver?.fullName?.split(' ')[0]}?</Typography>
-      <Rating value={score} onChange={(e, value) => value && setScore(value)} size="large" />
-      <TextField size="small" label="Add a comment (optional)" value={comment} onChange={e => setComment(e.target.value)} slotProps={{ htmlInput: { maxLength: 500 } }} />
-      <Button variant="contained" onClick={() => rate.mutate()} disabled={rate.isPending}>Submit rating</Button>
-    </Stack>
   );
 }
 
@@ -351,31 +265,6 @@ function RideDetails({ booking }) {
   );
 }
 
-function RentalDetails({ booking }) {
-  const canCancel = ['pending_driver', 'confirmed'].includes(booking.status) && new Date(booking.start) > new Date();
-  return (
-    <Container maxWidth="sm" sx={{ py: { xs: 3, md: 6 } }}>
-      <Stack spacing={2.5}>
-        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h3" component="h1">Rental</Typography>
-          <StatusChip status={booking.status} />
-        </Stack>
-        <Box sx={{ p: 3, borderRadius: 5, bgcolor: 'action.hover', display: 'flex', justifyContent: 'center' }}><CarImage car={booking.car} width={240} /></Box>
-        <Typography variant="h5">{booking.car?.name}</Typography>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-          <Box><Typography variant="caption" color="text.secondary">From</Typography><Typography variant="subtitle1">{dateTime(booking.start)}</Typography></Box>
-          <Box><Typography variant="caption" color="text.secondary">Until</Typography><Typography variant="subtitle1">{dateTime(booking.end)}</Typography></Box>
-          <Box><Typography variant="caption" color="text.secondary">Duration</Typography><Typography variant="subtitle1">{booking.totalHours} h</Typography></Box>
-        </Stack>
-        {booking.driverRequired && (booking.driver ? <DriverCard driver={booking.driver} /> : <Alert severity="info">We are assigning a chauffeur. You will be notified.</Alert>)}
-        <FareBreakdown lines={booking.fareBreakdown} total={booking.totalAmount} />
-        <PaymentRow booking={booking} />
-        {canCancel && <CancelButton booking={booking} />}
-      </Stack>
-    </Container>
-  );
-}
-
 export default function Trip() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -395,7 +284,7 @@ export default function Trip() {
     );
   }
   const { booking } = data;
-  if (booking.type === 'rental') return <RentalDetails booking={booking} />;
+  if (booking.type === 'rental') return <RentalBooking booking={booking} />;
   return (
     <MapLayout map={{ pickup: booking.pickup, drop: booking.drop, stops: booking.stops || [], route: booking.routeGeometry, animated: ['requested', 'accepted', 'arrived', 'in_progress'].includes(booking.status) }}>
       <RideDetails booking={booking} />

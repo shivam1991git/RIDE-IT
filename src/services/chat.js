@@ -7,6 +7,7 @@ const { config } = require('../config');
 const { Booking } = require('../models/Booking');
 const fare = require('./fare');
 const geo = require('./geo');
+const rentals = require('./rentals');
 
 const STATUS_TEXT = {
     scheduled: "scheduled for later (it goes live 15 minutes before pickup)",
@@ -19,6 +20,8 @@ const STATUS_TEXT = {
     expired: 'expired (no driver accepted in time)',
     pending_driver: 'confirmed, waiting for a chauffeur to be assigned',
     confirmed: 'confirmed',
+    pending_approval: 'waiting for our team to confirm your car and chauffeur',
+    rejected: 'not confirmed by our team',
 };
 
 const INTENTS = [
@@ -92,7 +95,7 @@ function describeBooking(booking) {
         .toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
     const title = booking.type === 'ride'
         ? `${booking.pickup?.name} → ${booking.drop?.name}`
-        : `${booking.car?.name || 'Rental car'} rental`;
+        : [booking.reference, rentals.RENTAL_TYPE_LABELS[booking.rentalType] || 'Rental', booking.car?.name].filter(Boolean).join(' · ');
     return {
         id: booking._id.toString(),
         type: booking.type,
@@ -116,14 +119,16 @@ async function myBookingsAnswer(auth) {
     const bookings = await Booking.find({ user: auth.id }).sort({ createdAt: -1 }).limit(3)
         .populate('car', 'name').populate('driver', 'fullName').lean();
     if (!bookings.length) {
-        return { reply: 'You have no bookings yet. Want to book your first ride?', actions: [{ type: 'link', label: 'Book a ride', to: '/ride' }] };
+        return config.ridesEnabled
+            ? { reply: 'You have no bookings yet. Want to book your first ride?', actions: [{ type: 'link', label: 'Book a ride', to: '/ride' }] }
+            : { reply: 'You have no bookings yet. Want to book a chauffeur-driven car?', actions: [{ type: 'link', label: 'Book a car', to: '/rentals' }] };
     }
     const cards = bookings.map(describeBooking);
     const latest = cards[0];
     return {
         reply: `Your latest booking (${latest.title}) is ${latest.statusText}. Here are your most recent bookings, straight from your account:`,
         cards: cards.map(card => ({ type: 'booking', verified: true, data: card })),
-        actions: [{ type: 'link', label: 'Open my trips', to: '/trips' }],
+        actions: [{ type: 'link', label: 'Open my bookings', to: '/trips' }],
     };
 }
 
@@ -153,11 +158,41 @@ async function knowledge() {
     };
 }
 
+// Phase 1 answers for chauffeur rentals; they replace the ride answers while rides are off.
+async function rentalKnowledge() {
+    const [settings, rates] = await Promise.all([rentals.getSettings(), rentals.activeRates()]);
+    const area = config.serviceArea;
+    const policy = settings.cancellation;
+    const classLines = Object.values(rates).map(rate => {
+        const prices = rentals.PACKAGES.map(pkg => `${rentals.packageLabel(pkg)} ${money(rate.packages.find(item => item.key === pkg.key)?.price || 0)}`).join(', ');
+        return `• ${rate.label}: ${prices}; outstation ₹${rate.outstation.perKm}/km; airport from ${money(rate.airport.fare)}`;
+    });
+    const destinations = rentals.DESTINATIONS.map(item => item.name).join(', ');
+    return {
+        greeting: 'Hi! I am the RIDE-IT assistant. I can help you book a chauffeur-driven car, explain prices and policies, check your bookings, or reach our support team.',
+        book: `Open "Book a car", choose the trip type (hourly, full day, outstation or airport), your pickup and time, then pick a car. You see the full price before you request it. Our team confirms the car and assigns a verified chauffeur, usually well before pickup. Book at least ${settings.minLeadHours} hours and up to ${settings.maxAdvanceDays} days ahead.`,
+        rentals: `Every RIDE-IT car comes with a verified chauffeur. Trip types: hourly and full-day packages in ${area.name}, outstation one-way or round trips (${destinations}), and airport transfers.`,
+        categories: `Our car classes and prices (before GST):\n${classLines.join('\n')}`,
+        pricing: `Prices are worked out on our servers and shown in full before you book:\n${classLines.join('\n')}\nGST is ${settings.gstPercent}%. Extra km and extra hours beyond your package are charged at the rates shown on your booking. ${settings.exclusions}`,
+        estimate: 'Open "Book a car", enter your trip, and every car shows its exact price with a full breakdown before you book.',
+        schedule: `All bookings are made in advance: at least ${settings.minLeadHours} hours and up to ${settings.maxAdvanceDays} days ahead. You can change the pickup time from your booking while it is not yet under way, if the car and chauffeur are free.`,
+        cancel: `Cancel from your booking page. Before we confirm, cancelling is free. After confirmation: more than ${policy.freeHours} h before pickup, full refund; ${policy.partialHours}-${policy.freeHours} h before, ${policy.partialRefundPercent}% refund; less than ${policy.partialHours} h before, no refund. You never pay a charge larger than what you have already paid. Refunds are sent to your UPI or bank account.`,
+        status: 'Booking statuses: Waiting for confirmation → Confirmed (car and chauffeur assigned) → Chauffeur arrived → On trip (after you share your PIN) → Completed. A request can also be Not confirmed (with the reason) or Cancelled.',
+        payment: `Pay by cash or UPI${settings.upiId ? ` (UPI ID ${settings.upiId}, add your booking reference)` : ''}. You can pay an advance or the full amount before the trip, or pay the driver at the end. Your booking always shows what you have paid and what is due.`,
+        safety: "Every chauffeur is verified by our team: driving licence, police verification and the car's registration, insurance, permit, fitness and PUC certificates are checked and tracked. Your trip only starts when you give the driver your 4-digit PIN. During the trip the SOS button alerts our team instantly and lets you call 112 or your trusted contact.",
+        driver: 'Want to work as a RIDE-IT chauffeur? Choose "Drive with us", add your licence details and an emergency contact. Our team verifies your licence and police verification, then assigns trips to you; you see them on your driver dashboard.',
+        promo: 'We do not have promo codes right now. Our prices are fixed and shown in full before you book.',
+        circuits: `For sightseeing in ${area.name}, book an hourly or full-day package: your chauffeur waits at each stop and drives you wherever you like within the package hours and kilometres.`,
+        unknown: 'I am not sure about that one. I can help with booking a car, prices, cancellations, payments, safety, or your own bookings.',
+    };
+}
+
 const SUGGESTIONS = ['How do I book a ride?', 'Fare from Assi Ghat to Sarnath', 'Where is my ride?', 'How do I cancel?', 'Talk to support'];
+const RENTAL_SUGGESTIONS = ['How do I book a car?', 'What are your prices?', 'Where is my booking?', 'What is the cancellation policy?', 'Talk to support'];
 
 function systemPrompt(kb) {
     return [
-        'You are the customer support assistant for RIDE-IT, a ride booking and car rental service in Varanasi, India.',
+        `You are the customer support assistant for RIDE-IT, ${config.ridesEnabled ? 'a ride booking and car rental service' : 'a chauffeur-driven car rental service'} in Varanasi, India.`,
         'Answer only questions about RIDE-IT. Politely decline anything unrelated.',
         'Use only the facts below. Never invent bookings, prices, drivers, policies, phone numbers or features.',
         'You cannot see any customer data. If asked about a specific booking, tell the user to ask "where is my ride" while signed in, or open My trips.',
@@ -197,13 +232,13 @@ const CONFIDENT = 1.5;
 async function reply({ messages, auth }) {
     const last = messages[messages.length - 1].content;
     const intent = detectIntent(last);
-    const kb = await knowledge();
-    const base = { intent: intent.id, suggestions: SUGGESTIONS, cards: [], actions: [] };
+    const kb = config.ridesEnabled ? await knowledge() : { ...(await knowledge()), ...(await rentalKnowledge()) };
+    const base = { intent: intent.id, suggestions: config.ridesEnabled ? SUGGESTIONS : RENTAL_SUGGESTIONS, cards: [], actions: [] };
 
     if (intent.id === 'my_bookings') {
         return { ...base, source: 'verified', ...(await myBookingsAnswer(auth)) };
     }
-    if (intent.id === 'estimate' || /\bto\b/i.test(last)) {
+    if (config.ridesEnabled && (intent.id === 'estimate' || /\bto\b/i.test(last))) {
         const estimate = await estimateAnswer(last);
         if (estimate) return { ...base, source: 'rules', cards: [], ...estimate };
     }

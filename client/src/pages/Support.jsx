@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, Chip, Container, Rating, Stack, TextField, Typography,
@@ -12,29 +12,32 @@ import { useAuth } from '../providers/AuthProvider';
 import { useToast } from '../providers/ToastProvider';
 
 const TOPICS = [
-  ['Booking a ride', 'Open Ride, set your pickup and destination, compare fares for each vehicle type, choose cash or card and confirm. A nearby verified driver accepts and you can follow the status live.'],
-  ['Cancelling', 'Cancel a ride from the trip screen any time before it starts. Rentals can be cancelled online until the start time. Card payments for cancelled bookings are refunded automatically.'],
-  ['Your ride PIN', 'Each ride has a 4-digit PIN shown on your trip screen. Share it with your driver only once you are in the right car — the trip cannot start without it.'],
-  ['Fares', 'Fares are calculated on our servers from road distance and estimated time for each vehicle type, with a minimum fare for short trips. The price shown before booking is what you pay.'],
-  ['Payments & refunds', 'Pay cash to your driver, or by card through Stripe. Refunds for cancelled card payments go back to the original card.'],
-  ['Becoming a driver', 'Apply from “Drive with us” with your licence and vehicle details. Our team verifies applications before drivers can go online.'],
+  ['Booking a car', 'Open “Book a car”, choose hourly, full day, outstation or airport, enter your pickup and time, and pick a car. You see the full price first. Our team confirms your car and assigns a verified chauffeur; you are notified at each step.'],
+  ['What the price includes', 'The car, fuel and chauffeur, up to the km and hours of your package, and GST. Extra km and hours are charged at the rates shown on your booking. Tolls, parking and interstate taxes are paid at actuals. Outstation prices include the driver allowance.'],
+  ['Cancelling', 'Cancel from your booking. Before we confirm it is always free. After confirmation: more than 24 h before pickup, full refund; 6–24 h, 50% refund; under 6 h, no refund. You are never charged more than you have already paid.'],
+  ['Changing the pickup time', 'Open your booking and choose “Change pickup time”. We check that your car and chauffeur are free at the new time; the price stays the same.'],
+  ['Payments & refunds', 'Pay by UPI or cash: an advance after confirmation, or everything to your chauffeur at the end. Your booking shows what is paid and due. Refunds are sent to your UPI or bank account.'],
+  ['Your trip PIN', 'Your booking shows a 4-digit PIN once confirmed. Give it to your chauffeur only when you are in the right car — the trip cannot start without it.'],
+  ['Becoming a chauffeur', 'Apply from “Drive with us” with your licence details. We verify your licence and police verification before assigning trips.'],
 ];
 
 const STATUS_COLORS = { open: 'warning', in_progress: 'info', resolved: 'success' };
 
 function TicketForm() {
-  const [form, setForm] = useState({ subject: '', message: '' });
+  const [params] = useSearchParams();
+  const bookingId = /^[a-f\d]{24}$/i.test(params.get('booking') || '') ? params.get('booking') : undefined;
+  const [form, setForm] = useState({ subject: bookingId ? 'Help with my booking' : '', message: '' });
   const queryClient = useQueryClient();
   const toast = useToast();
   const create = useMutation({
-    mutationFn: () => post('/support', form),
+    mutationFn: () => post('/support', { ...form, bookingId }),
     onSuccess: () => { setForm({ subject: '', message: '' }); toast.success('Ticket created. We will reply in your notifications.'); queryClient.invalidateQueries({ queryKey: ['support'] }); },
     onError: error => toast.error(error.message),
   });
   return (
     <Stack spacing={2} component="form" onSubmit={e => { e.preventDefault(); create.mutate(); }}>
       <TextField label="Subject" value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} slotProps={{ htmlInput: { maxLength: 120 } }} />
-      <TextField label="How can we help?" multiline minRows={4} value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} helperText="Include your trip date and route if this is about a booking." slotProps={{ htmlInput: { maxLength: 2000 } }} />
+      <TextField label="How can we help?" multiline minRows={4} value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} helperText={bookingId ? 'This ticket is linked to your booking, so our team can see its details.' : 'Include your booking reference (e.g. BK1042) if this is about a booking.'} slotProps={{ htmlInput: { maxLength: 2000 } }} />
       <Button type="submit" variant="contained" sx={{ alignSelf: 'flex-start' }} disabled={form.subject.trim().length < 3 || form.message.trim().length < 10 || create.isPending}>Send to support</Button>
     </Stack>
   );

@@ -19,9 +19,9 @@ import { StatusChip } from '../ui';
 const STORAGE_KEY = 'rid-chat';
 const WELCOME = {
   role: 'assistant',
-  content: 'Hi! I am the RIDE-IT assistant. Ask me about booking, fares, cancellations or rentals — or, if you are signed in, “where is my ride?”.',
+  content: 'Hi! I am the RIDE-IT assistant. Ask me about booking a car with a chauffeur, prices, payments or cancellations — or, if you are signed in, “where is my booking?”.',
   at: Date.now(),
-  suggestions: ['How do I book a ride?', 'Fare from Assi Ghat to Sarnath', 'Where is my ride?', 'How do I cancel?'],
+  suggestions: ['How do I book a car?', 'What are your prices?', 'Where is my booking?', 'What is the cancellation policy?'],
 };
 
 function load() {
@@ -192,7 +192,7 @@ export default function ChatWidget() {
                   value={input}
                   onChange={e => setInput(e.target.value.slice(0, 500))}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-                  placeholder={ticketMode ? 'Describe your issue…' : 'Ask about rides, fares, rentals…'}
+                  placeholder={ticketMode ? 'Describe your issue…' : 'Ask about bookings, prices, policies…'}
                   multiline
                   maxRows={4}
                   sx={{ flex: 1, py: 1, fontSize: 14 }}

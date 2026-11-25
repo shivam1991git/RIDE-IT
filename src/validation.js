@@ -53,7 +53,17 @@ const driverRegistration = customerRegistration.extend({
         const age = (Date.now() - date.getTime()) / (365.25 * 24 * 3600 * 1000);
         return age >= 18 && age <= 75;
     }, 'Drivers must be between 18 and 75 years old'),
-    vehicle,
+    // Chauffeurs drive fleet cars; an own vehicle only matters for instant rides.
+    vehicle: vehicle.optional(),
+    licenseExpiry: z.string().optional().refine(value => {
+        if (!value) return true;
+        const date = new Date(value);
+        return !Number.isNaN(date.getTime()) && date > new Date();
+    }, 'Licence expiry must be a future date').transform(value => (value ? new Date(value) : undefined)),
+    emergencyContact: z.object({
+        name: trimmed(2, 60, 'Emergency contact name'),
+        phone,
+    }).optional(),
 });
 
 const place = z.object({

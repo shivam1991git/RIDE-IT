@@ -21,18 +21,20 @@ import Footer from './Footer';
 import NotificationBell from './NotificationBell';
 import { useAuth, homeFor } from '../../providers/AuthProvider';
 import { useColorMode } from '../../providers/ColorModeProvider';
+import { useMeta } from '../../lib/meta';
 
+// Links marked `rides` only appear while instant rides are switched on.
 const NAV = {
   guest: [
-    { to: '/ride', label: 'Ride', icon: DirectionsCarRounded },
-    { to: '/rentals', label: 'Rentals', icon: KeyRounded },
+    { to: '/rentals', label: 'Book a car', icon: KeyRounded },
+    { to: '/ride', label: 'Ride', icon: DirectionsCarRounded, rides: true },
     { to: '/drive', label: 'Drive with us', icon: SpeedRounded },
     { to: '/support', label: 'Help', icon: SupportAgentRounded },
   ],
   customer: [
-    { to: '/ride', label: 'Ride', icon: DirectionsCarRounded },
-    { to: '/rentals', label: 'Rentals', icon: KeyRounded },
-    { to: '/trips', label: 'My trips', icon: ReceiptLongRounded },
+    { to: '/rentals', label: 'Book a car', icon: KeyRounded },
+    { to: '/ride', label: 'Ride', icon: DirectionsCarRounded, rides: true },
+    { to: '/trips', label: 'My bookings', icon: ReceiptLongRounded },
     { to: '/support', label: 'Help', icon: SupportAgentRounded },
   ],
   driver: [
@@ -68,7 +70,7 @@ function AccountMenu() {
       <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)} slotProps={{ paper: { sx: { minWidth: 220, mt: 1 } } }}>
         <Box sx={{ px: 2, py: 1 }}>
           <Typography variant="subtitle2">{account.fullName}</Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>{account.role === 'customer' ? 'Rider' : account.role}</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>{{ customer: 'Customer', driver: 'Chauffeur', admin: `${account.adminRole || 'super'} admin` }[account.role]}</Typography>
         </Box>
         <Divider />
         <MenuItem onClick={() => { setAnchor(null); navigate(homeFor(account.role)); }}>Home</MenuItem>
@@ -86,7 +88,8 @@ function Header() {
   const { account, role, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
-  const links = NAV[role || 'guest'];
+  const { ridesEnabled } = useMeta();
+  const links = NAV[role || 'guest'].filter(link => !link.rides || ridesEnabled);
 
   return (
     <AppBar
@@ -175,7 +178,7 @@ function Header() {
   );
 }
 
-const FULL_BLEED = ['/ride', '/driver/jobs', '/trips/'];
+const FULL_BLEED = ['/ride', '/driver/jobs'];
 
 export default function AppShell({ children, bare }) {
   const { pathname } = useLocation();

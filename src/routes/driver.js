@@ -1,13 +1,19 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const { config } = require('../config');
 const { Booking } = require('../models/Booking');
 const { Driver, publicRating } = require('../models/accounts');
+const { SupportTicket } = require('../models/misc');
 const { requireAuth } = require('../middleware/auth');
 const { validate, limiter, idParams } = require('../middleware/common');
 const { transition } = require('../services/bookings');
+const rentals = require('../services/rentals');
+const { completeRental } = require('../services/rentalOps');
+const { broadcastBooking, audit } = require('../services/notify');
 const { loadForViewer } = require('./booking');
+const { notifyOperations } = require('./rentals');
 const v = require('../validation');
-const { asyncHandler, badRequest, forbidden } = require('../utils/http');
+const { asyncHandler, badRequest, forbidden, notFound, conflict } = require('../utils/http');
 const { haversineKm, round } = require('../utils/geo');
 
 const router = express.Router();
@@ -29,9 +35,9 @@ function requireApproved(driver) {
     }
 }
 
-// Promo discounts are funded by RIDE-IT, not the driver: the driver earns the
-// fare before discount even though the rider pays less.
-const EARNING = { $add: ['$totalAmount', { $ifNull: ['$promo.discount', 0] }] };
+// Trip value credited to the driver: the final bill for chauffeur trips; for
+// rides, the fare before any promo (promos are funded by RIDE-IT, not the driver).
+const EARNING = { $ifNull: ['$finalAmount', { $add: ['$totalAmount', { $ifNull: ['$promo.discount', 0] }] }] };
 
 router.get('/summary', asyncHandler(async (req, res) => {
     const driver = await currentDriver(req);
@@ -50,7 +56,8 @@ router.get('/summary', asyncHandler(async (req, res) => {
                 todayEarnings: { $sum: { $cond: [{ $gte: ['$updatedAt', startOfDay] }, EARNING, 0] } },
                 todayTrips: { $sum: { $cond: [{ $gte: ['$updatedAt', startOfDay] }, 1, 0] } },
                 weekEarnings: { $sum: { $cond: [{ $gte: ['$updatedAt', weekAgo] }, EARNING, 0] } },
-                distanceKm: { $sum: { $ifNull: ['$distanceKm', 0] } },
+                // Chauffeur trips record the real distance driven; rides use the route estimate.
+                distanceKm: { $sum: { $ifNull: ['$settlement.actualKm', { $ifNull: ['$distanceKm', 0] }] } },
             },
         },
     ]);
@@ -113,12 +120,10 @@ router.get('/requests', asyncHandler(async (req, res) => {
     const driver = await currentDriver(req);
     if (driver.status !== 'approved') return res.json({ rides: [], rentals: [], reason: 'not_approved' });
 
-    const [rides, rentals] = await Promise.all([
-        driver.isOnline && driver.vehicle?.category
-            ? Booking.find({ type: 'ride', status: 'requested', category: driver.vehicle.category }).sort({ createdAt: 1 }).limit(20).populate('user', 'fullName rating')
-            : [],
-        Booking.find({ type: 'rental', status: 'pending_driver', start: { $gt: new Date() } }).sort({ start: 1 }).limit(20).populate('car', 'name image').populate('user', 'fullName rating'),
-    ]);
+    // Chauffeur trips are assigned by operations (see /assignments), never picked from a pool.
+    const rides = config.ridesEnabled && driver.isOnline && driver.vehicle?.category
+        ? await Booking.find({ type: 'ride', status: 'requested', category: driver.vehicle.category }).sort({ createdAt: 1 }).limit(20).populate('user', 'fullName rating')
+        : [];
 
     const origin = driver.lastLocation?.lat ? driver.lastLocation : null;
     const strip = booking => {
@@ -129,7 +134,7 @@ router.get('/requests', asyncHandler(async (req, res) => {
     };
     const rideList = rides.map(strip);
     if (origin) rideList.sort((a, b) => (a.pickupDistanceKm ?? 99) - (b.pickupDistanceKm ?? 99));
-    res.json({ rides: rideList, rentals: rentals.map(strip), online: driver.isOnline });
+    res.json({ rides: rideList, rentals: [], online: driver.isOnline });
 }));
 
 router.get('/active', asyncHandler(async (req, res) => {
@@ -140,6 +145,7 @@ router.get('/active', asyncHandler(async (req, res) => {
 const respond = (req, res) => async booking => res.json({ booking: await loadForViewer(booking._id, req.auth) });
 
 router.post('/bookings/:id/accept', validate({ params: idParams }), asyncHandler(async (req, res) => {
+    if (!config.ridesEnabled) throw notFound('Instant rides are not available. Chauffeur trips are assigned by our operations team.');
     const driver = await currentDriver(req);
     requireApproved(driver);
     const booking = await transition(req.params.id, 'accept', req.auth, {
@@ -160,8 +166,23 @@ router.post('/bookings/:id/release', validate({ params: idParams }), asyncHandle
     res.json({ booking: { _id: booking._id, status: booking.status } });
 }));
 
+// Chauffeurs can report arrival from this long before the pickup time.
+const ARRIVE_WINDOW_HOURS = 3;
+
 router.post('/bookings/:id/arrive', validate({ params: idParams }), asyncHandler(async (req, res) => {
-    return respond(req, res)(await transition(req.params.id, 'arrive', req.auth));
+    const booking = await transition(req.params.id, 'arrive', req.auth, {
+        guard: async current => {
+            if (current.type !== 'rental') return;
+            if (new Date(current.start).getTime() - Date.now() > ARRIVE_WINDOW_HOURS * rentals.HOUR) {
+                throw badRequest(`You can mark arrival from ${ARRIVE_WINDOW_HOURS} hours before pickup (${rentals.formatDateTime(current.start)})`);
+            }
+        },
+        // Arriving also counts as acknowledging, and takes the one-active-trip lock.
+        set: current => (current.type === 'rental'
+            ? { activeDriver: true, ...(current.assignment?.acknowledgedAt ? {} : { 'assignment.acknowledgedAt': new Date() }) }
+            : {}),
+    });
+    return respond(req, res)(booking);
 }));
 
 // The PIN is a 4-digit code, so attempts are capped per driver.
@@ -169,20 +190,46 @@ const pinLimiter = limiter({ windowMs: 10 * 60 * 1000, limit: 10, keyGenerator: 
 
 router.post('/bookings/:id/start', pinLimiter, validate({
     params: idParams,
-    body: z.object({ pin: z.string().regex(/^\d{4}$/, 'PIN must be 4 digits') }),
+    body: z.object({
+        pin: z.string().regex(/^\d{4}$/, 'PIN must be 4 digits'),
+        startOdometer: z.number().min(0, 'Odometer reading cannot be negative').max(9999999).optional(),
+    }),
 }), asyncHandler(async (req, res) => {
     const booking = await transition(req.params.id, 'start', req.auth, {
         guard: async current => {
-            if (current.pin !== req.body.pin) throw badRequest('That PIN does not match. Ask the rider for the PIN shown in their app.');
+            if (current.type === 'rental' && current.rentalType && req.body.startOdometer === undefined) {
+                throw badRequest('Enter the odometer reading before starting the trip');
+            }
+            if (current.pin !== req.body.pin) throw badRequest('That PIN does not match. Ask the customer for the PIN shown in their app.');
         },
+        set: current => (current.type === 'rental'
+            ? { 'trip.startOdometer': req.body.startOdometer, 'trip.startedAt': new Date() }
+            : {}),
     });
     return respond(req, res)(booking);
 }));
 
-router.post('/bookings/:id/complete', validate({
-    params: idParams,
-    body: z.object({ cashCollected: z.boolean().optional() }),
-}), asyncHandler(async (req, res) => {
+const completionBody = z.object({
+    // Rides and v2 rentals: confirm cash was collected.
+    cashCollected: z.boolean().optional(),
+    // Chauffeur trips: closing odometer, costs paid at actuals and money collected.
+    endOdometer: z.number().min(0).max(9999999).optional(),
+    tolls: z.number().min(0).max(50000).default(0),
+    parking: z.number().min(0).max(10000).default(0),
+    collected: z.object({
+        amount: z.number().min(0).max(500000),
+        method: z.enum(['cash', 'upi']),
+        reference: z.string().trim().max(60).optional(),
+    }).optional(),
+});
+
+router.post('/bookings/:id/complete', validate({ params: idParams, body: completionBody }), asyncHandler(async (req, res) => {
+    const existing = await Booking.findOne({ _id: req.params.id, driver: req.auth.id }).select('type rentalType').lean();
+    if (!existing) throw notFound('Booking not found');
+    if (existing.type === 'rental' && existing.rentalType) {
+        const me = await Driver.findById(req.auth.id).select('fullName').lean();
+        return respond(req, res)(await completeRental(req.params.id, req.auth, req.body, me?.fullName));
+    }
     const booking = await transition(req.params.id, 'complete', req.auth, {
         guard: async current => {
             if (current.type === 'rental' && current.start > new Date()) throw badRequest('This rental has not started yet');
@@ -195,6 +242,97 @@ router.post('/bookings/:id/complete', validate({
             : {}),
     });
     return respond(req, res)(booking);
+}));
+
+// ---------- Chauffeur assignments ----------
+
+router.get('/assignments', asyncHandler(async (req, res) => {
+    const [upcoming, recent] = await Promise.all([
+        Booking.find({ type: 'rental', driver: req.auth.id, status: { $in: ['confirmed', 'arrived', 'in_progress'] } })
+            .sort({ start: 1 }).limit(30)
+            .populate('car', 'name image registrationNumber category')
+            .populate('user', 'fullName phoneNumber rating'),
+        Booking.find({ type: 'rental', driver: req.auth.id, status: { $in: ['completed', 'cancelled'] } })
+            .sort({ start: -1 }).limit(10)
+            .populate('car', 'name registrationNumber'),
+    ]);
+    res.json({ upcoming, recent });
+}));
+
+async function ownAssignment(id, driverId) {
+    const booking = await Booking.findOne({ _id: id, type: 'rental', driver: driverId }).lean();
+    if (!booking) throw notFound('Assignment not found');
+    return booking;
+}
+
+router.post('/bookings/:id/acknowledge', validate({ params: idParams }), asyncHandler(async (req, res) => {
+    const booking = await ownAssignment(req.params.id, req.auth.id);
+    if (booking.status !== 'confirmed') throw conflict('Only upcoming trips can be acknowledged', 'invalid_state');
+    const updated = await Booking.findOneAndUpdate(
+        { _id: booking._id, driver: req.auth.id, status: 'confirmed', 'assignment.acknowledgedAt': null },
+        { $set: { 'assignment.acknowledgedAt': new Date() }, $push: { timeline: { status: 'confirmed', by: 'driver', note: 'Driver acknowledged the assignment' } } },
+        { new: true },
+    );
+    if (!updated) throw conflict('You have already acknowledged this trip', 'already_acknowledged');
+    broadcastBooking(updated);
+    await audit(req, 'booking.acknowledge', 'booking', updated._id);
+    return respond(req, res)(updated);
+}));
+
+// The driver cannot do the trip: operations is alerted to assign someone else.
+router.post('/bookings/:id/decline', validate({
+    params: idParams,
+    body: z.object({ reason: v.trimmed(3, 200, 'Reason') }),
+}), asyncHandler(async (req, res) => {
+    const booking = await ownAssignment(req.params.id, req.auth.id);
+    if (booking.status !== 'confirmed') throw conflict('You can only decline a trip before arriving at the pickup', 'invalid_state');
+    const updated = await Booking.findOneAndUpdate(
+        { _id: booking._id, driver: req.auth.id, status: 'confirmed' },
+        {
+            $unset: { driver: 1, 'assignment.assignedAt': 1, 'assignment.acknowledgedAt': 1 },
+            $push: {
+                'assignment.declines': { driver: req.auth.id, reason: req.body.reason, at: new Date() },
+                timeline: { status: 'confirmed', by: 'driver', note: `Driver declined: ${req.body.reason}` },
+            },
+        },
+        { new: true },
+    );
+    if (!updated) throw conflict('This trip was just updated. Please refresh.', 'stale');
+    await rentals.release('driver', req.auth.id, booking._id);
+    const driver = await Driver.findById(req.auth.id).select('fullName').lean();
+    await notifyOperations(updated, `${booking.reference}: driver needed`, `${driver?.fullName || 'The driver'} declined (${req.body.reason}). Pickup ${rentals.formatDateTime(booking.start)}.`);
+    broadcastBooking(updated);
+    await audit(req, 'booking.decline', 'booking', updated._id, { reason: req.body.reason });
+    res.json({ ok: true });
+}));
+
+const issueLimiter = limiter({ windowMs: 10 * 60 * 1000, limit: 10, keyGenerator: req => `issue:${req.auth.id}` });
+const ISSUE_LABELS = { breakdown: 'Vehicle breakdown', accident: 'Accident', customer: 'Customer issue', route: 'Route or traffic problem', other: 'Other issue' };
+
+// Breakdowns and accidents are raised as urgent so operations can send a replacement.
+router.post('/bookings/:id/issue', issueLimiter, validate({
+    params: idParams,
+    body: z.object({
+        category: z.enum(Object.keys(ISSUE_LABELS)),
+        message: v.trimmed(5, 1000, 'Description'),
+    }),
+}), asyncHandler(async (req, res) => {
+    const booking = await ownAssignment(req.params.id, req.auth.id);
+    const driver = await Driver.findById(req.auth.id).select('fullName email phoneNumber').lean();
+    const ticket = await SupportTicket.create({
+        requester: req.auth.id,
+        requesterRole: 'driver',
+        requesterName: driver?.fullName,
+        requesterEmail: driver?.email,
+        booking: booking._id,
+        subject: `${booking.reference || 'Trip'}: ${ISSUE_LABELS[req.body.category]}`,
+        message: `${req.body.message}\n\nDriver phone: ${driver?.phoneNumber}`,
+        source: 'trip_issue',
+        priority: ['breakdown', 'accident'].includes(req.body.category) ? 'urgent' : 'normal',
+    });
+    await notifyOperations(booking, ticket.subject, req.body.message.slice(0, 200));
+    await audit(req, 'booking.issue', 'booking', booking._id, { ticket: ticket._id, category: req.body.category });
+    res.status(201).json({ ticketId: ticket._id });
 }));
 
 module.exports = router;
