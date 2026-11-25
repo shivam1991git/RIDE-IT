@@ -8,9 +8,9 @@ import CallRounded from '@mui/icons-material/CallRounded';
 import NavigationRounded from '@mui/icons-material/NavigationRounded';
 import MapLayout from '../../components/MapLayout';
 import CarImage from '../../components/CarImage';
-import { CardSkeleton, FareBreakdown, RouteLine, StatusChip } from '../../components/ui';
+import { CardSkeleton, FareBreakdown, RideExtras, RouteLine, StatusChip } from '../../components/ui';
 import { get, post } from '../../lib/api';
-import { dateTime, km, minutes, money } from '../../lib/format';
+import { dateTime, driverEarning, km, minutes, money } from '../../lib/format';
 import { useRealtime } from '../../providers/RealtimeProvider';
 import { useToast } from '../../providers/ToastProvider';
 
@@ -130,20 +130,38 @@ export default function DriverJob() {
   }
 
   return (
-    <MapLayout map={{ pickup: booking.pickup, drop: booking.drop, route: booking.routeGeometry }}>
+    <MapLayout map={{ pickup: booking.pickup, drop: booking.drop, stops: booking.stops || [], route: booking.routeGeometry }}>
       <Stack spacing={2.5}>
         <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h4" component="h1">Current trip</Typography>
           <StatusChip status={booking.status} />
         </Stack>
         <RiderCard user={booking.user} />
-        <RouteLine pickup={booking.pickup} drop={booking.drop} />
+        <RouteLine pickup={booking.pickup} drop={booking.drop} stops={booking.stops || []} />
+        <RideExtras booking={booking} />
+        {booking.status === 'in_progress' && booking.stops?.length > 0 && (
+          <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
+            {booking.stops.map((stop, index) => (
+              <Button key={`${stop.lat},${stop.lng},${index}`} size="small" variant="outlined" startIcon={<NavigationRounded />} href={directions(stop)} target="_blank" rel="noopener">
+                Stop {index + 1}
+              </Button>
+            ))}
+          </Stack>
+        )}
         <Stack direction="row" spacing={1}>
           <Chip size="small" label={km(booking.distanceKm)} />
           <Chip size="small" label={`~${minutes(booking.durationMin)}`} />
           <Chip size="small" variant="outlined" label={`${booking.payment?.method} · ${booking.payment?.status}`} sx={{ textTransform: 'capitalize' }} />
         </Stack>
-        <Typography variant="h3" sx={{ fontVariantNumeric: 'tabular-nums' }}>{money(booking.totalAmount)}</Typography>
+        <Box>
+          <Typography variant="caption" color="text.secondary">You earn</Typography>
+          <Typography variant="h3" sx={{ fontVariantNumeric: 'tabular-nums' }}>{money(driverEarning(booking))}</Typography>
+          {booking.promo?.discount > 0 && (
+            <Typography variant="body2" color="text.secondary">
+              Rider pays {money(booking.totalAmount)} ({booking.payment?.method}). RIDE-IT adds the {money(booking.promo.discount)} promo {booking.promo.code} to your earnings.
+            </Typography>
+          )}
+        </Box>
         <Divider />
         <RideActions booking={booking} />
       </Stack>

@@ -20,6 +20,7 @@ export const km = value => `${Number(value || 0).toFixed(1)} km`;
 export const minutes = value => (value >= 60 ? `${Math.floor(value / 60)} h ${Math.round(value % 60)} min` : `${Math.round(value)} min`);
 
 export const STATUS = {
+  scheduled: { label: 'Scheduled', tone: 'info' },
   requested: { label: 'Finding driver', tone: 'warning' },
   accepted: { label: 'Driver on the way', tone: 'info' },
   arrived: { label: 'Driver arrived', tone: 'secondary' },
@@ -31,7 +32,28 @@ export const STATUS = {
   confirmed: { label: 'Confirmed', tone: 'success' },
 };
 
-export const ACTIVE_STATUSES = ['requested', 'accepted', 'arrived', 'in_progress', 'pending_driver', 'confirmed'];
+export const ACTIVE_STATUSES = ['scheduled', 'requested', 'accepted', 'arrived', 'in_progress', 'pending_driver', 'confirmed'];
+
+// "Today, 6:30 pm" / "Tomorrow, 9:00 am" / "Sat 23 Nov, 7:15 am"
+export function friendlyDateTime(value) {
+  const date = new Date(value);
+  const today = new Date();
+  const dayDiff = Math.round((new Date(date).setHours(0, 0, 0, 0) - new Date(today).setHours(0, 0, 0, 0)) / 86400000);
+  const time = timeOnly(date);
+  if (dayDiff === 0) return `Today, ${time}`;
+  if (dayDiff === 1) return `Tomorrow, ${time}`;
+  return `${date.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}, ${time}`;
+}
+
+// What the driver earns: promo discounts are paid by RIDE-IT, not the driver.
+export const driverEarning = booking => (booking?.totalAmount || 0) + (booking?.promo?.discount || 0);
+
+export const PREFERENCES = [
+  ['quiet', 'Quiet ride'],
+  ['ac', 'AC on'],
+  ['luggage', 'Extra luggage'],
+  ['assistance', 'Needs assistance'],
+];
 
 // Datetime-local input value in the user's local time zone.
 export function toLocalInput(date) {

@@ -5,8 +5,9 @@ import { useTheme } from '@mui/material/styles';
 
 const VARANASI = [25.3176, 82.9739];
 
-const pin = kind => L.divIcon({ className: `rid-pin ${kind}`, html: '<span></span>', iconSize: [26, 26], iconAnchor: [13, 13] });
+const pin = (kind, label = '') => L.divIcon({ className: `rid-pin ${kind}`, html: `<span>${label}</span>`, iconSize: [26, 26], iconAnchor: [13, 13] });
 const ICONS = { pickup: pin('pickup'), drop: pin('drop'), car: pin('car') };
+const STOP_ICONS = [1, 2, 3].map(n => pin('stop', n));
 
 function FitView({ points }) {
   const map = useMap();
@@ -34,26 +35,37 @@ function FitView({ points }) {
  */
 const TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
-export default function RideMap({ pickup, drop, route, driverLocation, animated = true, sx }) {
+// VITE_MAP_TILES=off draws the map without any network tiles (markers and the
+// route on a plain grid). Used for fully offline local runs.
+const TILES_ENABLED = import.meta.env.VITE_MAP_TILES !== 'off';
+
+export default function RideMap({ pickup, drop, stops = [], route, driverLocation, animated = true, sx }) {
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
 
   const points = useMemo(() => {
     const list = [];
     if (pickup) list.push([pickup.lat, pickup.lng]);
+    stops.forEach(stop => list.push([stop.lat, stop.lng]));
     if (drop) list.push([drop.lat, drop.lng]);
     if (driverLocation?.lat) list.push([driverLocation.lat, driverLocation.lng]);
     return list;
-  }, [pickup, drop, driverLocation]);
+  }, [pickup, drop, stops, driverLocation]);
 
+  const classes = [dark && 'rid-map-dark', !TILES_ENABLED && 'rid-map-offline'].filter(Boolean).join(' ');
   return (
-    <div className={dark ? 'rid-map-dark' : undefined} style={{ height: '100%', width: '100%', ...sx }}>
-      <MapContainer center={VARANASI} zoom={13} zoomControl={false} scrollWheelZoom style={{ height: '100%', width: '100%' }} attributionControl>
-        <TileLayer
-          url={TILES}
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          maxZoom={19}
-        />
+    <div className={classes || undefined} style={{ height: '100%', width: '100%', ...sx }}>
+      <MapContainer center={VARANASI} zoom={13} zoomControl={false} scrollWheelZoom style={{ height: '100%', width: '100%' }} attributionControl={TILES_ENABLED}>
+        {TILES_ENABLED && (
+          <TileLayer
+            url={TILES}
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            maxZoom={19}
+          />
+        )}
+        {stops.map((stop, index) => (
+          <Marker key={`${stop.lat},${stop.lng},${index}`} position={[stop.lat, stop.lng]} icon={STOP_ICONS[index] || STOP_ICONS[2]} title={`Stop ${index + 1}: ${stop.name}`} />
+        ))}
         {route?.length > 1 && (
           <>
             <Polyline positions={route} pathOptions={{ color: theme.palette.secondary.main, weight: 9, opacity: 0.18 }} />

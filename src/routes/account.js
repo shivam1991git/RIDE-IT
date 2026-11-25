@@ -46,6 +46,23 @@ router.delete('/me/places/:id', requireAuth('customer'), validate({ params: idPa
     res.json({ savedPlaces: updated.savedPlaces });
 }));
 
+// ---------- Trusted contact (used by SOS) ----------
+
+router.put('/me/trusted-contact', requireAuth('customer'), validate({
+    body: z.object({ name: v.trimmed(2, 60, 'Contact name'), phone: v.phone }),
+}), asyncHandler(async (req, res) => {
+    const me = await User.findById(req.auth.id).select('phoneNumber').lean();
+    const digits = value => String(value || '').replace(/\D/g, '').slice(-10);
+    if (digits(me?.phoneNumber) === digits(req.body.phone)) throw badRequest('Your trusted contact must be someone else, not your own number');
+    const updated = await User.findByIdAndUpdate(req.auth.id, { $set: { trustedContact: req.body } }, { new: true });
+    res.json({ trustedContact: updated.trustedContact });
+}));
+
+router.delete('/me/trusted-contact', requireAuth('customer'), asyncHandler(async (req, res) => {
+    await User.updateOne({ _id: req.auth.id }, { $unset: { trustedContact: 1 } });
+    res.status(204).end();
+}));
+
 // ---------- Notifications ----------
 
 router.get('/notifications', requireAuth(), asyncHandler(async (req, res) => {

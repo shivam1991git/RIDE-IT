@@ -142,8 +142,30 @@ async function getRoute(from, to) {
     }
 }
 
+/**
+ * Route through several points in order (pickup, stops..., drop). Legs are
+ * fetched in parallel and joined; the result is 'osrm' only if every leg was.
+ */
+async function getMultiRoute(points) {
+    if (points.length < 2) throw new Error('A route needs at least two points');
+    const legs = await Promise.all(points.slice(1).map((to, index) => getRoute(points[index], to)));
+    const geometry = [];
+    for (const leg of legs) {
+        // Skip the first point of every leg after the first: it repeats the previous end.
+        geometry.push(...(geometry.length ? leg.geometry.slice(1) : leg.geometry));
+    }
+    return {
+        distanceKm: round(legs.reduce((sum, leg) => sum + leg.distanceKm, 0), 2),
+        durationMin: legs.reduce((sum, leg) => sum + leg.durationMin, 0),
+        geometry: downsample(geometry, 200),
+        source: legs.every(leg => leg.source === 'osrm') ? 'osrm' : 'estimate',
+        legs: legs.length,
+    };
+}
+
 module.exports = {
     LANDMARKS,
+    getMultiRoute,
     TRAFFIC_FACTOR,
     ROAD_FACTOR,
     searchPlaces,

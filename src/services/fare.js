@@ -28,11 +28,16 @@ async function activeCategories() {
     return FareConfig.find({ active: true }).sort({ sortOrder: 1 }).lean();
 }
 
-function computeRideFare(category, distanceKm, durationMin) {
+// Waiting at stops is charged at the category's per-minute rate, at this share.
+const WAIT_RATE_SHARE = 0.5;
+
+function computeRideFare(category, distanceKm, durationMin, waitMin = 0) {
     const base = toPaise(category.baseFare);
     const distance = toPaise(category.perKm * distanceKm);
     const time = toPaise(category.perMin * durationMin);
-    const subtotal = base + distance + time;
+    const waitRate = category.perMin * WAIT_RATE_SHARE;
+    const waiting = toPaise(waitRate * waitMin);
+    const subtotal = base + distance + time + waiting;
     const minimum = toPaise(category.minFare);
 
     const breakdown = [
@@ -40,12 +45,26 @@ function computeRideFare(category, distanceKm, durationMin) {
         { label: `Distance (${distanceKm.toFixed(1)} km × ₹${category.perKm})`, amount: toRupees(distance) },
         { label: `Time (${Math.round(durationMin)} min × ₹${category.perMin})`, amount: toRupees(time) },
     ];
+    if (waitMin > 0) {
+        breakdown.push({ label: `Waiting at stops (${waitMin} min × ₹${waitRate})`, amount: toRupees(waiting) });
+    }
     if (subtotal < minimum) {
         breakdown.push({ label: 'Minimum fare adjustment', amount: toRupees(minimum - subtotal) });
     }
     // Fares are charged in whole rupees.
     const total = Math.round(Math.max(subtotal, minimum) / 100);
     return { total, breakdown };
+}
+
+// Returns a new fare with a promo discount line; the total never goes below zero.
+function applyDiscount(fare, code, discount) {
+    if (!discount) return fare;
+    return {
+        total: Math.max(0, fare.total - discount),
+        breakdown: [...fare.breakdown, { label: `Promo ${code}`, amount: -discount }],
+        discount,
+        originalTotal: fare.total,
+    };
 }
 
 function rentalHours(start, end) {
@@ -69,7 +88,9 @@ module.exports = {
     RENTAL_MAX_DAYS_AHEAD,
     ensureDefaultCategories,
     activeCategories,
+    WAIT_RATE_SHARE,
     computeRideFare,
+    applyDiscount,
     computeRentalFare,
     rentalHours,
 };

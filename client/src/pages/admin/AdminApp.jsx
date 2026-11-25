@@ -12,6 +12,7 @@ import BadgeRounded from '@mui/icons-material/BadgeRounded';
 import PeopleRounded from '@mui/icons-material/PeopleRounded';
 import DirectionsCarRounded from '@mui/icons-material/DirectionsCarRounded';
 import SellRounded from '@mui/icons-material/SellRounded';
+import LocalOfferRounded from '@mui/icons-material/LocalOfferRounded';
 import SupportAgentRounded from '@mui/icons-material/SupportAgentRounded';
 import ReviewsRounded from '@mui/icons-material/ReviewsRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
@@ -28,6 +29,7 @@ const Bookings = lazy(() => import('./Bookings'));
 const People = lazy(() => import('./People'));
 const Fleet = lazy(() => import('./Fleet'));
 const Pricing = lazy(() => import('./Pricing'));
+const Promos = lazy(() => import('./Promos'));
 const Support = lazy(() => import('./SupportAdmin'));
 const Feedback = lazy(() => import('./Feedback'));
 const Audit = lazy(() => import('./Audit'));
@@ -44,6 +46,7 @@ function Nav({ onNavigate }) {
     ['customers', 'Customers', PeopleRounded],
     ['fleet', 'Rental fleet', DirectionsCarRounded],
     ['pricing', 'Pricing', SellRounded],
+    ['promos', 'Promo codes', LocalOfferRounded],
     ['support', 'Support', SupportAgentRounded, totals.openTickets],
     ['feedback', 'Feedback', ReviewsRounded],
     ['admins', 'Admin team', AdminPanelSettingsRounded],
@@ -117,6 +120,7 @@ export default function AdminApp() {
               <Route path="admins" element={<People role="admin" />} />
               <Route path="fleet" element={<Fleet />} />
               <Route path="pricing" element={<Pricing />} />
+              <Route path="promos" element={<Promos />} />
               <Route path="support" element={<Support />} />
               <Route path="feedback" element={<Feedback />} />
               <Route path="audit" element={<Audit />} />

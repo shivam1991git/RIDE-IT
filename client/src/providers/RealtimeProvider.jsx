@@ -41,6 +41,10 @@ export function RealtimeProvider({ children }) {
         socket.on('ride:new', () => queryClient.invalidateQueries({ queryKey: ['driver', 'requests'] }));
         socket.on('rental:new', () => queryClient.invalidateQueries({ queryKey: ['driver', 'requests'] }));
         socket.on('support:new', () => queryClient.invalidateQueries({ queryKey: ['admin', 'support'] }));
+        socket.on('sos', ({ rider }) => {
+          queryClient.invalidateQueries({ queryKey: ['admin'] });
+          toast.error(`SOS from ${rider || 'a rider'} — open Support now`);
+        });
         socket.on('notification', notification => {
           queryClient.invalidateQueries({ queryKey: ['notifications'] });
           toast.info(notification.title);

@@ -102,7 +102,7 @@ export default function PlaceSearch({ label, value, onChange, kind = 'drop', all
               ...params.InputProps,
               startAdornment: (
                 <InputAdornment position="start">
-                  <Box sx={{ width: 10, height: 10, borderRadius: kind === 'pickup' ? '50%' : '3px', bgcolor: kind === 'pickup' ? 'secondary.main' : 'primary.main', ml: 0.5 }} />
+                  <Box sx={{ width: 10, height: 10, borderRadius: kind === 'drop' ? '3px' : '50%', bgcolor: { pickup: 'secondary.main', stop: 'text.secondary' }[kind] || 'primary.main', ml: 0.5 }} />
                 </InputAdornment>
               ),
               endAdornment: (

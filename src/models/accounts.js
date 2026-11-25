@@ -68,6 +68,11 @@ const placeSchema = new mongoose.Schema({
 const userSchema = buildSchema({
     status: { type: String, enum: ['active', 'suspended'], default: 'active' },
     savedPlaces: { type: [placeSchema], default: [] },
+    // Someone the rider trusts; offered as a one-tap share target during SOS.
+    trustedContact: {
+        name: { type: String, trim: true, maxlength: 60 },
+        phone: { type: String, trim: true, maxlength: 15 },
+    },
     rating: { type: ratingSchema, default: () => ({}) },
 });
 

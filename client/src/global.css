@@ -18,6 +18,20 @@ a { color: inherit; }
 }
 .rid-pin.pickup span { background: #2EC4B6; }
 .rid-pin.drop span { background: #FF9F1C; border-radius: 5px; }
+.rid-pin.stop span {
+  background: #5B6474; width: 20px; height: 20px; border-width: 3px;
+  color: #fff; font: 700 11px/14px Inter, sans-serif; text-align: center;
+}
+/* Offline map: no tiles, a quiet grid so markers and the route still read. */
+.rid-map-offline .leaflet-container {
+  background-color: #EEF1F4;
+  background-image: linear-gradient(rgba(0,0,0,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+.rid-map-offline.rid-map-dark .leaflet-container {
+  background-color: #1A1D23;
+  background-image: linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px);
+}
 .rid-pin.car span { background: #111318; border-color: #FF9F1C; width: 22px; height: 22px; }
 .rid-route-anim { stroke-dasharray: 10 14; animation: rid-dash 1.2s linear infinite; }
 @keyframes rid-dash { to { stroke-dashoffset: -24; } }

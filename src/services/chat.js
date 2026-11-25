@@ -9,6 +9,7 @@ const fare = require('./fare');
 const geo = require('./geo');
 
 const STATUS_TEXT = {
+    scheduled: "scheduled for later (it goes live 15 minutes before pickup)",
     requested: 'looking for a driver',
     accepted: 'driver assigned and on the way',
     arrived: 'driver has arrived at pickup',
@@ -26,6 +27,9 @@ const INTENTS = [
     { id: 'my_bookings', patterns: [/\bmy (ride|rides|booking|bookings|trip|trips|rental|rentals)\b/, /\b(where is|status of) my\b/, /\b(last|latest|current|upcoming|recent) (ride|booking|trip|rental)\b/, /\bmy driver\b/], weight: 3 },
     { id: 'estimate', patterns: [/\bfrom\b.+\bto\b/, /\bhow much\b.+\bto\b/, /\b(fare|price|cost)\b.+\bto\b/], weight: 2.5 },
     { id: 'book', patterns: [/\bhow (do|can|to) (i )?(book|get|order)\b/, /\bbook(ing)? (a )?(ride|cab|taxi|auto)\b/, /\bget a (ride|cab)\b/], weight: 2 },
+    { id: 'schedule', patterns: [/\b(schedul(e|ed|ing)|later|tomorrow|in advance|reserve|book ahead|advance booking)\b/], weight: 2.2 },
+    { id: 'circuits', patterns: [/\b(stops?|multi.?stop|circuits?|darshan|tours?|temples?|sightseeing|itinerary)\b/], weight: 2 },
+    { id: 'promo', patterns: [/\b(promo|coupons?|discounts?|offers?|promo ?code)\b/], weight: 2.2 },
     { id: 'cancel', patterns: [/\bcancel/, /\brefund/], weight: 2 },
     { id: 'status', patterns: [/\bstatus(es)?\b/, /\bwhat does .*(mean)\b/, /\b(requested|accepted|arrived|in progress|expired|pending driver)\b/], weight: 1.5 },
     { id: 'categories', patterns: [/\b(categor(y|ies)|vehicle types?|kinds? of (cars?|vehicles?|rides?)|types? of (cars?|vehicles?|rides?)|auto|mini|sedan|suv)\b/], weight: 1.5 },
@@ -137,7 +141,10 @@ async function knowledge() {
         pricing: `Fares are calculated on our servers from route distance and estimated time:\n${categoryLines.join('\n')}\nYou always see the fare before confirming, and that is the amount you pay. There is no surge pricing.`,
         rentals: `Rentals let you book a car by the hour (1 hour to 7 days, up to ${fare.RENTAL_MAX_DAYS_AHEAD} days in advance). Pick a car and a time window; add a chauffeur for ₹${fare.RENTAL_DRIVER_PER_HOUR}/hour if you like.`,
         payment: 'You can pay cash to the driver at the end of the trip, or pay by card securely through Stripe. Card payment status is confirmed directly with Stripe.',
-        safety: 'Every ride has a 4-digit PIN. Your driver can only start the trip after you tell them the PIN, so you always get into the right car. Driver profiles are verified by our team, and you can see their vehicle and plate number in the app.',
+        schedule: 'You can schedule a ride from 30 minutes up to 7 days ahead: on the Ride screen switch "Ride now" to "Schedule" and pick a time. The fare is fixed when you book. We start looking for a driver 15 minutes before pickup, and you can cancel free of charge until a driver accepts.',
+        circuits: 'Add up to 3 stops to any ride, with how long the driver should wait at each. Waiting is charged at half the per-minute rate and included in the upfront fare. Or pick a Darshan Circuit (Kashi Darshan, Ghats Trail, Sarnath Return, Heritage Day) to fill in a curated route in one tap.',
+        promo: 'Open "Offers" on the Ride screen to see current promo codes, or type a code there. The discount shows on every ride type before you book. A code is given back to you if the ride is cancelled or no driver is found.',
+        safety: 'Every ride has a 4-digit PIN. Your driver can only start the trip after you tell them the PIN, so you always get into the right car. Driver profiles are verified by our team, and you can see their vehicle and plate number in the app. During a trip you can share a live trip link with family, and the SOS button alerts our team instantly and lets you call 112 or your trusted contact.',
         account: 'You can create a rider account from "Sign up". Forgot your password? Use "Forgot password" on the sign-in page to get a reset link by email. You can update your name, phone and saved places from your profile.',
         driver: 'Want to drive with RIDE-IT? Choose "Drive with us" on the sign-up page and add your licence and vehicle details. Our team verifies your profile, and once approved you can go online and start accepting rides.',
         area: `We currently operate in and around ${area.name} (within about ${area.radiusKm} km of the city centre), including the airport, railway station, ghats and BHU.`,
