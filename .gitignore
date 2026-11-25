@@ -29,3 +29,6 @@ yarn-error.log*
 
 # database backups (personal data)
 /backups
+
+# demo data export (contains demo password hashes)
+/seed-data

@@ -12,6 +12,8 @@ require('../src/models/accounts');
 require('../src/models/Car');
 require('../src/models/Booking');
 require('../src/models/misc');
+require('../src/models/Promo');
+require('../src/models/rental');
 
 const APPLY = process.argv.includes('--apply');
 
