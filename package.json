@@ -15,7 +15,7 @@
     "db:local": "node scripts/local-db.js",
     "seed": "node scripts/seed.js",
     "create-admin": "node scripts/create-admin.js",
-    "migrate": "node scripts/migrate-v2.js",
+    "migrate": "node scripts/migrate-and-index.js",
     "test": "jest --runInBand",
     "backup": "node scripts/backup-db.js"
   },
@@ -46,7 +46,7 @@
     "testEnvironment": "node",
     "testTimeout": 30000,
     "setupFiles": [
-      "<rootDir>/tests/env.js"
+      "<rootDir>/tests/setup/env.js"
     ],
     "roots": [
       "<rootDir>/tests"

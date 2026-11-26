@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { MongoClient } = require('mongodb');
 const { EJSON } = require('bson');
-const { config, assertConfig } = require('../src/config');
+const { config, assertConfig } = require('../src/config/env');
 
 function arg(name) {
     const index = process.argv.indexOf(`--${name}`);

@@ -2,11 +2,11 @@
 // Usage: npm run create-admin -- --username alice --email alice@example.com --name "Alice" --phone 9876543210
 // The password is read from the ADMIN_PASSWORD environment variable.
 const mongoose = require('mongoose');
-const { assertConfig } = require('../src/config');
-const { connectDB } = require('../src/db');
-const { Admin, CASE_INSENSITIVE } = require('../src/models/accounts');
-const { hashPassword } = require('../src/services/auth');
-const v = require('../src/validation');
+const { assertConfig } = require('../src/config/env');
+const { connectDB } = require('../src/config/database');
+const { Admin, CASE_INSENSITIVE } = require('../src/modules/accounts/account.model');
+const { hashPassword } = require('../src/modules/auth/auth.service');
+const v = require('../src/core/validation');
 
 function arg(name) {
     const index = process.argv.indexOf(`--${name}`);

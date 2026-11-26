@@ -1,11 +1,11 @@
 const http = require('http');
-const { config, assertConfig } = require('./src/config');
-const { connectDB, mongoose } = require('./src/db');
+const { config, assertConfig } = require('./src/config/env');
+const { connectDB, mongoose } = require('./src/config/database');
 const { createApp, isAllowedOrigin } = require('./src/app');
-const { attachRealtime } = require('./src/services/realtime');
-const { ensureDefaultCategories } = require('./src/services/fare');
-const { ensureRentalDefaults } = require('./src/services/rentals');
-const { expireStaleRideRequests, dispatchScheduledRides, rejectUnconfirmedRentals } = require('./src/services/bookings');
+const { attachRealtime } = require('./src/modules/notifications/realtime.service');
+const { ensureDefaultCategories } = require('./src/modules/rides/fare.service');
+const { ensureRentalDefaults } = require('./src/modules/rentals/rental.service');
+const { expireStaleRideRequests, dispatchScheduledRides, rejectUnconfirmedRentals } = require('./src/modules/bookings/booking-lifecycle.service');
 
 async function start() {
     assertConfig();

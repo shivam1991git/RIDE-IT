@@ -3,19 +3,21 @@
 // Usage: npm run seed            (adds data if the database is empty)
 //        npm run seed -- --reset (wipes the local database first)
 const mongoose = require('mongoose');
-const { config } = require('../src/config');
-const { connectDB } = require('../src/db');
-const { assertLocalDatabase } = require('./guard');
-const { User, Driver, Admin } = require('../src/models/accounts');
-const Car = require('../src/models/Car');
-const { Booking } = require('../src/models/Booking');
-const { Feedback } = require('../src/models/misc');
-const { FleetOwner, Payment, Settings } = require('../src/models/rental');
-const { hashPassword } = require('../src/services/auth');
-const fare = require('../src/services/fare');
-const geo = require('../src/services/geo');
-const rentals = require('../src/services/rentals');
-const { haversineKm, round } = require('../src/utils/geo');
+const { config } = require('../src/config/env');
+const { connectDB } = require('../src/config/database');
+const { assertLocalDatabase } = require('./assert-local-db');
+const { User, Driver, Admin } = require('../src/modules/accounts/account.model');
+const Car = require('../src/modules/fleet/car.model');
+const { Booking } = require('../src/modules/bookings/booking.model');
+const { Feedback } = require('../src/modules/support/feedback.model');
+const { FleetOwner } = require('../src/modules/fleet/fleet-owner.model');
+const { Payment } = require('../src/modules/payments/payment.model');
+const { Settings } = require('../src/modules/settings/settings.model');
+const { hashPassword } = require('../src/modules/auth/auth.service');
+const fare = require('../src/modules/rides/fare.service');
+const geo = require('../src/modules/geo/geo.service');
+const rentals = require('../src/modules/rentals/rental.service');
+const { haversineKm, round } = require('../src/core/geo-math');
 
 const DEMO_PASSWORD = 'Demo@1234';
 const HOUR = 3600 * 1000;

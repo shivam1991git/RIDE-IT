@@ -3,9 +3,9 @@ const cors = require('cors');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const mongoose = require('mongoose');
-const { config } = require('./config');
-const { errorHandler, notFoundHandler, originGuard, limiter } = require('./middleware/common');
-const { webhookHandler, router: paymentsRouter } = require('./routes/payments');
+const { config } = require('./config/env');
+const { errorHandler, notFoundHandler, originGuard, limiter } = require('./core/middleware/request.middleware');
+const { webhookHandler, router: paymentsRouter } = require('./modules/payments/stripe.routes');
 
 function isAllowedOrigin(origin) {
     return config.frontendUrls.includes(origin) || config.frontendUrlPattern.test(origin);
@@ -49,15 +49,15 @@ function createApp() {
         return next();
     });
 
-    app.use('/api/auth', require('./routes/auth'));
-    app.use('/api', require('./routes/catalog'));
-    app.use('/api', require('./routes/rentals').router);
-    app.use('/api', require('./routes/booking').router);
-    app.use('/api/driver', require('./routes/driver'));
-    app.use('/api/admin', require('./routes/admin'));
-    app.use('/api', require('./routes/account').router);
+    app.use('/api/auth', require('./modules/auth/auth.routes'));
+    app.use('/api', require('./modules/catalog/catalog.routes'));
+    app.use('/api', require('./modules/rentals/rental.routes').router);
+    app.use('/api', require('./modules/bookings/booking.routes').router);
+    app.use('/api/driver', require('./modules/drivers/driver.routes'));
+    app.use('/api/admin', require('./modules/admin/admin.routes'));
+    app.use('/api', require('./modules/accounts/account.routes').router);
     app.use('/api', paymentsRouter);
-    app.use('/api', require('./routes/chat'));
+    app.use('/api', require('./modules/chat/chat.routes'));
 
     app.get('/', (req, res) => res.json({ name: 'RIDE-IT API', health: '/api/health' }));
     app.use(notFoundHandler);

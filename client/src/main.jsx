@@ -7,12 +7,12 @@ import '@fontsource-variable/inter';
 import '@fontsource/sora/600.css';
 import '@fontsource/sora/700.css';
 import 'leaflet/dist/leaflet.css';
-import './global.css';
-import { ColorModeProvider } from './providers/ColorModeProvider';
-import { ToastProvider } from './providers/ToastProvider';
-import { AuthProvider } from './providers/AuthProvider';
-import { RealtimeProvider } from './providers/RealtimeProvider';
-import App from './App';
+import './app/global.css';
+import { ColorModeProvider } from './app/providers/ColorModeProvider';
+import { ToastProvider } from './app/providers/ToastProvider';
+import { AuthProvider } from './app/providers/AuthProvider';
+import { RealtimeProvider } from './app/providers/RealtimeProvider';
+import App from './app/App';
 
 const queryClient = new QueryClient({
   defaultOptions: {
