@@ -84,7 +84,7 @@ async function getSettings() {
     ).lean();
 }
 
-async function activeRates() {
+async function getActiveRates() {
     const rates = await RentalRate.find({ active: true }).lean();
     return Object.fromEntries(rates.map(rate => [rate.vehicleClass, rate]));
 }
@@ -278,7 +278,7 @@ function priceTrip(trip, rate, settings) {
 const DOCUMENT_LABELS = { rc: 'RC', insurance: 'Insurance', permit: 'Permit', fitness: 'Fitness certificate', puc: 'PUC certificate' };
 
 // Why this car cannot be used until `until`, or null if it can.
-function vehicleIssue(car, until) {
+function getCarComplianceIssue(car, until) {
     if (car.active === false) return 'This car is retired';
     if (car.maintenance) return 'This car is under maintenance';
     if (!car.registrationNumber) return 'Registration number is missing';
@@ -292,7 +292,7 @@ function vehicleIssue(car, until) {
     return null;
 }
 
-function driverIssue(driver, until) {
+function getDriverComplianceIssue(driver, until) {
     if (driver.status !== 'approved') return `Driver is ${driver.status}`;
     if (!driver.licenseExpiry) return 'Driving licence expiry date is missing';
     if (new Date(driver.licenseExpiry) < until) return `Driving licence expires on ${formatDate(driver.licenseExpiry)}, before this trip ends`;
@@ -301,7 +301,7 @@ function driverIssue(driver, until) {
 }
 
 // Documents and licences that expire within `days` (or already have).
-async function complianceAlerts(days = 30, now = new Date()) {
+async function listComplianceAlerts(days = 30, now = new Date()) {
     const horizon = new Date(now.getTime() + days * 24 * HOUR);
     const [cars, drivers] = await Promise.all([
         Car.find({ active: true }).select('name registrationNumber documents').lean(),
@@ -347,7 +347,7 @@ const LOCKS = {
 };
 
 // Atomically reserves [start, end) for a booking; false if anything overlaps.
-async function reserve(kind, id, bookingId, start, end) {
+async function reserveSlot(kind, id, bookingId, start, end) {
     const { model, extra } = LOCKS[kind];
     const result = await model.updateOne(
         { _id: id, ...extra, slots: { $not: overlapping(start, end) } },
@@ -356,7 +356,7 @@ async function reserve(kind, id, bookingId, start, end) {
     return result.modifiedCount === 1;
 }
 
-async function release(kind, id, bookingId) {
+async function releaseSlot(kind, id, bookingId) {
     if (!id) return;
     await LOCKS[kind].model.updateOne(
         { _id: id },
@@ -366,7 +366,7 @@ async function release(kind, id, bookingId) {
 }
 
 // Moves a booking's own reservation to a new window, if nothing else overlaps it.
-async function move(kind, id, bookingId, start, end) {
+async function moveSlot(kind, id, bookingId, start, end) {
     const { model } = LOCKS[kind];
     const result = await model.updateOne(
         { _id: id, slots: { $not: overlapping(start, end, bookingId) } },
@@ -377,14 +377,14 @@ async function move(kind, id, bookingId, start, end) {
 }
 
 // Ids (as strings) of the given cars or drivers that are busy during [start, end).
-async function busyIds(kind, ids, start, end, exceptBooking) {
+async function findBusyIds(kind, ids, start, end, exceptBooking) {
     const busy = await LOCKS[kind].model.find({ _id: { $in: ids }, slots: overlapping(start, end, exceptBooking) }).select('_id').lean();
     return new Set(busy.map(item => item._id.toString()));
 }
 
 // ---------- References ----------
 
-async function nextReference() {
+async function nextBookingReference() {
     const counter = await Counter.findOneAndUpdate({ _id: 'booking' }, { $inc: { seq: 1 } }, { upsert: true, new: true });
     return `BK${1000 + counter.seq}`;
 }
@@ -396,7 +396,7 @@ async function nextReference() {
  * kept; the charge never exceeds what the customer has actually paid, because
  * payments are collected manually.
  */
-function cancellationTerms(booking, settings, { refundPercent: override, now = new Date() } = {}) {
+function getCancellationTerms(booking, settings, { refundPercent: override, now = new Date() } = {}) {
     const hoursBefore = (new Date(booking.start).getTime() - now.getTime()) / HOUR;
     const policy = settings.cancellation;
     let refundPercent;
@@ -429,7 +429,7 @@ function cancellationTerms(booking, settings, { refundPercent: override, now = n
  * Payment status is derived from the payment records and the booking status,
  * so it is never edited by hand and always matches the money recorded.
  */
-function paymentSummary(booking, paid, refunded) {
+function summarizePayments(booking, paid, refunded) {
     const net = paid - refunded;
     const closed = ['cancelled', 'rejected'].includes(booking.status);
     let due;
@@ -450,7 +450,7 @@ function paymentSummary(booking, paid, refunded) {
     return { paid, refunded, due, balance: Math.max(0, due - net), refundDue, status };
 }
 
-async function refreshPayment(id) {
+async function syncPaymentSummary(id) {
     const bookingId = new mongoose.Types.ObjectId(String(id));
     const [totals] = await Payment.aggregate([
         { $match: { booking: bookingId } },
@@ -465,7 +465,7 @@ async function refreshPayment(id) {
     ]);
     const booking = await Booking.findById(bookingId).lean();
     if (!booking) return null;
-    const summary = paymentSummary(booking, totals?.paid || 0, totals?.refunded || 0);
+    const summary = summarizePayments(booking, totals?.paid || 0, totals?.refunded || 0);
     await Booking.updateOne({ _id: bookingId }, {
         $set: {
             'payment.paid': summary.paid,
@@ -482,7 +482,7 @@ async function refreshPayment(id) {
 // ---------- Final bill ----------
 
 // Extra km/hours beyond the package, plus tolls and parking paid at actuals.
-function settle(booking, { actualKm, tolls = 0, parking = 0 }, now = new Date()) {
+function calculateFinalBill(booking, { actualKm, tolls = 0, parking = 0 }, now = new Date()) {
     const rates = booking.rates || {};
     const startedAt = booking.trip?.startedAt ? new Date(booking.trip.startedAt) : new Date(booking.start);
     const actualHours = round(Math.max(0, now.getTime() - startedAt.getTime()) / HOUR, 2);
@@ -521,22 +521,22 @@ module.exports = {
     HOUR,
     ensureRentalDefaults,
     getSettings,
-    activeRates,
+    getActiveRates,
     planTrip,
     priceTrip,
     packageLabel,
-    vehicleIssue,
-    driverIssue,
-    complianceAlerts,
-    reserve,
-    release,
-    move,
-    busyIds,
-    nextReference,
-    cancellationTerms,
-    paymentSummary,
-    refreshPayment,
-    settle,
+    getCarComplianceIssue,
+    getDriverComplianceIssue,
+    listComplianceAlerts,
+    reserveSlot,
+    releaseSlot,
+    moveSlot,
+    findBusyIds,
+    nextBookingReference,
+    getCancellationTerms,
+    summarizePayments,
+    syncPaymentSummary,
+    calculateFinalBill,
     calendarDays,
     nightsBetween,
     formatDate,

@@ -2,7 +2,7 @@ const { AuditLog } = require('./audit-log.model');
 const { config } = require('../../config/env');
 
 // Records an important action. Never throws: auditing must not break the request.
-async function audit(req, action, targetType, targetId, meta) {
+async function recordAudit(req, action, targetType, targetId, meta) {
     try {
         await AuditLog.create({
             actor: req?.auth?.id,
@@ -17,4 +17,4 @@ async function audit(req, action, targetType, targetId, meta) {
     }
 }
 
-module.exports = { audit };
+module.exports = { recordAudit };

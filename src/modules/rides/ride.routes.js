@@ -15,8 +15,8 @@ const { CIRCUITS, circuitKeys } = require('./circuits');
 const { SHAREABLE, SHARE_LINK_GRACE_MS, shareUrl, ensureShareToken } = require('./trip-sharing.service');
 const geo = require('../geo/geo.service');
 const payments = require('../payments/stripe.service');
-const { loadForViewer } = require('../bookings/booking-viewer.service');
-const { audit } = require('../audit/audit.service');
+const { getBookingForViewer } = require('../bookings/booking-viewer.service');
+const { recordAudit } = require('../audit/audit.service');
 const { emitToRoom, driverPoolRoom } = require('../notifications/realtime.service');
 const v = require('../../core/validation');
 const { haversineKm } = require('../../core/geo-math');
@@ -219,15 +219,15 @@ router.post('/rides', ridesOnly, requireAuth('customer'), quoteLimiter, validate
     }
 
     if (!scheduledFor) emitToRoom(driverPoolRoom(category), 'ride:new', { id: booking._id.toString(), category });
-    await audit(req, 'booking.create', 'booking', booking._id, {
+    await recordAudit(req, 'booking.create', 'booking', booking._id, {
         type: 'ride', category, total: booking.totalAmount, scheduled: Boolean(scheduledFor), stops: stops.length, promo: promo?.code,
     });
-    res.status(201).json({ booking: await loadForViewer(booking._id, req.auth) });
+    res.status(201).json({ booking: await getBookingForViewer(booking._id, req.auth) });
 }));
 
 // ---------- Live trip sharing ----------
 
-async function ownRide(id, userId) {
+async function findCustomerRide(id, userId) {
     const booking = await Booking.findOne({ _id: id, user: userId }).lean();
     if (!booking) throw notFound('Booking not found');
     if (booking.type !== 'ride') throw badRequest('Only rides can be shared');
@@ -235,14 +235,14 @@ async function ownRide(id, userId) {
 }
 
 router.post('/bookings/:id/share', ridesOnly, requireAuth('customer'), validate({ params: idParams }), asyncHandler(async (req, res) => {
-    const booking = await ownRide(req.params.id, req.auth.id);
+    const booking = await findCustomerRide(req.params.id, req.auth.id);
     if (!SHAREABLE.includes(booking.status)) throw conflict('This trip has ended, so it can no longer be shared', 'not_shareable');
     const token = await ensureShareToken(booking._id, req.auth.id);
     res.json({ token, url: shareUrl(token) });
 }));
 
 router.delete('/bookings/:id/share', ridesOnly, requireAuth('customer'), validate({ params: idParams }), asyncHandler(async (req, res) => {
-    await ownRide(req.params.id, req.auth.id);
+    await findCustomerRide(req.params.id, req.auth.id);
     await Booking.updateOne({ _id: req.params.id, user: req.auth.id }, { $unset: { shareToken: 1 } });
     res.status(204).end();
 }));
@@ -300,7 +300,7 @@ router.get('/share/:token', ridesOnly, shareLimiter, validate({
 
 router.get('/rides/active', ridesOnly, requireAuth('customer'), asyncHandler(async (req, res) => {
     const active = await Booking.findOne({ user: req.auth.id, type: 'ride', activeCustomer: true }).select('_id').lean();
-    res.json({ booking: active ? await loadForViewer(active._id, req.auth) : null });
+    res.json({ booking: active ? await getBookingForViewer(active._id, req.auth) : null });
 }));
 
 module.exports = { router };

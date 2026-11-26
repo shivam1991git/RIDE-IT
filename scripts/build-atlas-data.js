@@ -223,7 +223,7 @@ function booking({ user, car: carDoc, driver: driverDoc, status, t, created, pay
     };
     if (driverDoc && !doc.assignment) doc.assignment = { assignedAt: at(created, 1), acknowledgedAt: at(created, 3) };
     if (doc.settlementInput) {
-        const s = rentals.settle({ ...doc }, doc.settlementInput, doc.trip.endedAt);
+        const s = rentals.calculateFinalBill({ ...doc }, doc.settlementInput, doc.trip.endedAt);
         doc.settlement = s;
         doc.finalAmount = doc.totalAmount + s.total;
         delete doc.settlementInput;
@@ -233,11 +233,11 @@ function booking({ user, car: carDoc, driver: driverDoc, status, t, created, pay
     const paid = records.filter(r => r.kind === 'payment').reduce((sum, r) => sum + r.amount, 0);
     const refunded = records.filter(r => r.kind === 'refund').reduce((sum, r) => sum + r.amount, 0);
     if (doc.cancellationInput) {
-        const terms = rentals.cancellationTerms({ ...doc, status: doc.cancellationInput.statusBefore, payment: { paid, refunded: 0 } }, settings, { refundPercent: doc.cancellationInput.refundPercent, now: doc.cancellationInput.at });
+        const terms = rentals.getCancellationTerms({ ...doc, status: doc.cancellationInput.statusBefore, payment: { paid, refunded: 0 } }, settings, { refundPercent: doc.cancellationInput.refundPercent, now: doc.cancellationInput.at });
         doc.cancellation = { by: doc.cancellationInput.by, reason: doc.cancellationInput.reason, at: doc.cancellationInput.at, refundPercent: terms.refundPercent, charge: terms.charge };
         delete doc.cancellationInput;
     }
-    const summary = rentals.paymentSummary(doc, paid, refunded);
+    const summary = rentals.summarizePayments(doc, paid, refunded);
     doc.payment = { method: paymentMethod, status: summary.status, paid, refunded, due: summary.due, refundDue: summary.refundDue, ...(paid ? { paidAt: records.filter(r => r.kind === 'payment').at(-1).createdAt } : {}) };
     const saved = add('bookings', Booking, doc);
     records.forEach(r => add('payments', Payment, r));

@@ -9,9 +9,9 @@ const { Admin } = require('../accounts/account.model');
 const { requireAuth } = require('../../core/middleware/auth.middleware');
 const { validate, limiter, idParams } = require('../../core/middleware/request.middleware');
 const rentals = require('./rental.service');
-const { loadForViewer } = require('../bookings/booking-viewer.service');
-const { notify, broadcastBooking } = require('../notifications/notification.service');
-const { audit } = require('../audit/audit.service');
+const { getBookingForViewer } = require('../bookings/booking-viewer.service');
+const { sendNotification, broadcastBookingUpdate } = require('../notifications/notification.service');
+const { recordAudit } = require('../audit/audit.service');
 const { emitToRoom } = require('../notifications/realtime.service');
 const v = require('../../core/validation');
 const { asyncHandler, badRequest, notFound, conflict } = require('../../core/http');
@@ -55,7 +55,7 @@ const bookBody = z.object({
 // ---------- Public catalogue ----------
 
 router.get('/rentals/options', asyncHandler(async (req, res) => {
-    const [settings, rates] = await Promise.all([rentals.getSettings(), rentals.activeRates()]);
+    const [settings, rates] = await Promise.all([rentals.getSettings(), rentals.getActiveRates()]);
     const priceOf = kind => rate => Math.min(...rate.packages
         .filter(item => rentals.PACKAGES.find(pkg => pkg.key === item.key)?.kind === kind)
         .map(item => item.price));
@@ -93,17 +93,17 @@ router.post('/rentals/search', searchLimiter, validate({ body: searchBody }), as
     const settings = await rentals.getSettings();
     const trip = await rentals.planTrip(req.body, settings);
     const [rates, cars] = await Promise.all([
-        rentals.activeRates(),
+        rentals.getActiveRates(),
         Car.find({ active: true }).populate('owner', 'active').lean(),
     ]);
     const priced = cars.filter(car => rates[car.category || 'sedan']);
-    const busy = await rentals.busyIds('car', priced.map(car => car._id), trip.start, trip.blockEnd);
+    const busy = await rentals.findBusyIds('car', priced.map(car => car._id), trip.start, trip.blockEnd);
 
     const results = priced.map(car => {
         const fare = rentals.priceTrip(trip, rates[car.category || 'sedan'], settings);
         let reason = null;
         if (car.capacity < trip.passengers) reason = `Seats ${car.capacity}`;
-        else if (rentals.vehicleIssue(car, trip.blockEnd)) reason = 'Not available for these dates';
+        else if (rentals.getCarComplianceIssue(car, trip.blockEnd)) reason = 'Not available for these dates';
         else if (busy.has(car._id.toString())) reason = 'Already booked at this time';
         const { owner, documents, ...publicCar } = car;
         return { car: publicCar, available: !reason, reason, fare };
@@ -135,7 +135,7 @@ function publicTrip(trip) {
 
 async function notifyOperations(booking, title, body) {
     const admins = await Admin.find({ status: 'active', adminRole: { $in: ['super', 'operations', null] } }).select('_id').lean();
-    await Promise.all(admins.map(admin => notify({ recipient: admin._id, role: 'admin', type: 'booking.request', title, body, booking })));
+    await Promise.all(admins.map(admin => sendNotification({ recipient: admin._id, role: 'admin', type: 'booking.request', title, body, booking })));
     emitToRoom('admins', 'booking:update', { id: booking._id.toString(), status: booking.status, type: booking.type });
 }
 
@@ -144,10 +144,10 @@ router.post('/rentals', requireAuth('customer'), searchLimiter, validate({ body:
     const trip = await rentals.planTrip(req.body, settings);
     const car = await Car.findOne({ _id: req.body.carId, active: true }).lean();
     if (!car) throw notFound('This car is no longer available');
-    const rate = (await rentals.activeRates())[car.category || 'sedan'];
+    const rate = (await rentals.getActiveRates())[car.category || 'sedan'];
     if (!rate) throw conflict('This car type is not available right now', 'unavailable');
     if (car.capacity < trip.passengers) throw badRequest(`${car.name} seats ${car.capacity}. Choose a bigger car for ${trip.passengers} passengers.`);
-    if (rentals.vehicleIssue(car, trip.blockEnd)) throw conflict('This car is not available for these dates. Please choose another car.', 'unavailable');
+    if (rentals.getCarComplianceIssue(car, trip.blockEnd)) throw conflict('This car is not available for these dates. Please choose another car.', 'unavailable');
 
     // Stops accidental double submissions and overlapping trips.
     const overlap = await Booking.findOne({
@@ -163,7 +163,7 @@ router.post('/rentals', requireAuth('customer'), searchLimiter, validate({ body:
 
     const price = rentals.priceTrip(trip, rate, settings);
     const bookingId = new mongoose.Types.ObjectId();
-    if (!(await rentals.reserve('car', car._id, bookingId, trip.start, trip.blockEnd))) {
+    if (!(await rentals.reserveSlot('car', car._id, bookingId, trip.start, trip.blockEnd))) {
         throw conflict('Someone just booked this car for part of that time. Please choose another car.', 'slot_taken');
     }
 
@@ -172,7 +172,7 @@ router.post('/rentals', requireAuth('customer'), searchLimiter, validate({ body:
         booking = await Booking.create({
             _id: bookingId,
             type: 'rental',
-            reference: await rentals.nextReference(),
+            reference: await rentals.nextBookingReference(),
             user: req.auth.id,
             status: 'pending_approval',
             rentalType: trip.rentalType,
@@ -199,16 +199,16 @@ router.post('/rentals', requireAuth('customer'), searchLimiter, validate({ body:
             timeline: [{ status: 'pending_approval', by: 'customer' }],
         });
     } catch (error) {
-        await rentals.release('car', car._id, bookingId);
+        await rentals.releaseSlot('car', car._id, bookingId);
         throw error;
     }
 
     await notifyOperations(booking, `New request ${booking.reference}`, `${rentals.RENTAL_TYPE_LABELS[booking.rentalType]} · ${car.name} · ${rentals.formatDateTime(booking.start)}`);
-    await audit(req, 'booking.create', 'booking', booking._id, { type: 'rental', rentalType: booking.rentalType, car: car._id, total: booking.totalAmount });
-    res.status(201).json({ booking: await loadForViewer(booking._id, req.auth) });
+    await recordAudit(req, 'booking.create', 'booking', booking._id, { type: 'rental', rentalType: booking.rentalType, car: car._id, total: booking.totalAmount });
+    res.status(201).json({ booking: await getBookingForViewer(booking._id, req.auth) });
 }));
 
-async function ownRental(id, auth) {
+async function findCustomerRental(id, auth) {
     const booking = await Booking.findOne({ _id: id, user: auth.id, type: 'rental' }).lean();
     if (!booking) throw notFound('Booking not found');
     return booking;
@@ -216,11 +216,11 @@ async function ownRental(id, auth) {
 
 // What cancelling right now would cost, shown before the customer confirms.
 router.get('/rentals/:id/cancel-terms', requireAuth('customer'), validate({ params: idParams }), asyncHandler(async (req, res) => {
-    const booking = await ownRental(req.params.id, req.auth);
+    const booking = await findCustomerRental(req.params.id, req.auth);
     if (!['pending_approval', 'pending_driver', 'confirmed'].includes(booking.status)) {
         throw conflict('This booking can no longer be cancelled online. Contact support.', 'too_late');
     }
-    res.json({ terms: rentals.cancellationTerms(booking, await rentals.getSettings()) });
+    res.json({ terms: rentals.getCancellationTerms(booking, await rentals.getSettings()) });
 }));
 
 /**
@@ -244,12 +244,12 @@ async function reschedule(bookingId, newStart, auth, settings) {
     const blockEnd = new Date(new Date(booking.blockEnd || booking.end).getTime() + shift);
 
     const car = await Car.findById(booking.car).lean();
-    if (!car || rentals.vehicleIssue(car, blockEnd)) throw conflict('The booked car cannot be used at the new time. Contact support to change the car.', 'unavailable');
-    if (!(await rentals.move('car', booking.car, booking._id, newStart, blockEnd))) {
+    if (!car || rentals.getCarComplianceIssue(car, blockEnd)) throw conflict('The booked car cannot be used at the new time. Contact support to change the car.', 'unavailable');
+    if (!(await rentals.moveSlot('car', booking.car, booking._id, newStart, blockEnd))) {
         throw conflict('The car is already booked at the new time. Choose another time.', 'slot_taken');
     }
-    if (booking.driver && !(await rentals.move('driver', booking.driver, booking._id, newStart, blockEnd))) {
-        await rentals.move('car', booking.car, booking._id, booking.start, booking.blockEnd || booking.end);
+    if (booking.driver && !(await rentals.moveSlot('driver', booking.driver, booking._id, newStart, blockEnd))) {
+        await rentals.moveSlot('car', booking.car, booking._id, booking.start, booking.blockEnd || booking.end);
         throw conflict('The assigned driver is not free at the new time. Choose another time or ask support to reassign.', 'driver_busy');
     }
     const updated = await Booking.findOneAndUpdate(
@@ -261,15 +261,15 @@ async function reschedule(bookingId, newStart, auth, settings) {
         { new: true },
     );
     if (!updated) {
-        await rentals.move('car', booking.car, booking._id, booking.start, booking.blockEnd || booking.end);
-        if (booking.driver) await rentals.move('driver', booking.driver, booking._id, booking.start, booking.blockEnd || booking.end);
+        await rentals.moveSlot('car', booking.car, booking._id, booking.start, booking.blockEnd || booking.end);
+        if (booking.driver) await rentals.moveSlot('driver', booking.driver, booking._id, booking.start, booking.blockEnd || booking.end);
         throw conflict('This booking was just updated by someone else. Please refresh.', 'stale');
     }
     const body = `New pickup: ${rentals.formatDateTime(newStart)}`;
-    if (auth.role !== 'customer') await notify({ recipient: booking.user, role: 'customer', type: 'booking.rescheduled', title: `${booking.reference}: pickup time changed`, body, booking: updated });
-    if (booking.driver) await notify({ recipient: booking.driver, role: 'driver', type: 'booking.rescheduled', title: `${booking.reference}: pickup time changed`, body, booking: updated });
+    if (auth.role !== 'customer') await sendNotification({ recipient: booking.user, role: 'customer', type: 'booking.rescheduled', title: `${booking.reference}: pickup time changed`, body, booking: updated });
+    if (booking.driver) await sendNotification({ recipient: booking.driver, role: 'driver', type: 'booking.rescheduled', title: `${booking.reference}: pickup time changed`, body, booking: updated });
     if (auth.role === 'customer') await notifyOperations(updated, `${booking.reference} rescheduled by customer`, body);
-    broadcastBooking(updated);
+    broadcastBookingUpdate(updated);
     return updated;
 }
 
@@ -278,8 +278,8 @@ router.post('/rentals/:id/reschedule', requireAuth('customer'), validate({
     body: z.object({ start: v.isoDate('New pickup time') }),
 }), asyncHandler(async (req, res) => {
     const updated = await reschedule(req.params.id, req.body.start, req.auth, await rentals.getSettings());
-    await audit(req, 'booking.reschedule', 'booking', updated._id, { start: updated.start });
-    res.json({ booking: await loadForViewer(updated._id, req.auth) });
+    await recordAudit(req, 'booking.reschedule', 'booking', updated._id, { start: updated.start });
+    res.json({ booking: await getBookingForViewer(updated._id, req.auth) });
 }));
 
 module.exports = { router, reschedule, notifyOperations };

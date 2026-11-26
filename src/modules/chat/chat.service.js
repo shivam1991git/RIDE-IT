@@ -160,7 +160,7 @@ async function knowledge() {
 
 // Phase 1 answers for chauffeur rentals; they replace the ride answers while rides are off.
 async function rentalKnowledge() {
-    const [settings, rates] = await Promise.all([rentals.getSettings(), rentals.activeRates()]);
+    const [settings, rates] = await Promise.all([rentals.getSettings(), rentals.getActiveRates()]);
     const area = config.serviceArea;
     const policy = settings.cancellation;
     const classLines = Object.values(rates).map(rate => {

@@ -8,11 +8,11 @@ const { Driver, User } = require('../accounts/account.model');
 const { requireAuth } = require('../../core/middleware/auth.middleware');
 const { validate, limiter, idParams } = require('../../core/middleware/request.middleware');
 const rentals = require('../rentals/rental.service');
-const { transition } = require('./booking-lifecycle.service');
-const { loadForViewer } = require('./booking-viewer.service');
+const { transitionBooking } = require('./booking-lifecycle.service');
+const { getBookingForViewer } = require('./booking-viewer.service');
 const { ensureShareToken, shareUrl } = require('../rides/trip-sharing.service');
-const { notify, broadcastBooking } = require('../notifications/notification.service');
-const { audit } = require('../audit/audit.service');
+const { sendNotification, broadcastBookingUpdate } = require('../notifications/notification.service');
+const { recordAudit } = require('../audit/audit.service');
 const { emitToRoom } = require('../notifications/realtime.service');
 const v = require('../../core/validation');
 const { asyncHandler, badRequest, notFound, conflict, forbidden, paginate } = require('../../core/http');
@@ -56,7 +56,7 @@ router.post('/bookings/:id/sos', requireAuth('customer'), sosLimiter, validate({
     });
     await Booking.updateOne({ _id: booking._id }, { $set: { sosAt: new Date() } });
     emitToRoom('admins', 'sos', { bookingId: booking._id.toString(), ticketId: ticket._id.toString(), rider: rider?.fullName });
-    await audit(req, 'booking.sos', 'booking', booking._id, { ticket: ticket._id, location: req.body.location });
+    await recordAudit(req, 'booking.sos', 'booking', booking._id, { ticket: ticket._id, location: req.body.location });
     res.status(201).json({
         emergencyNumber: '112',
         ticketId: ticket._id,
@@ -99,7 +99,7 @@ router.get('/bookings', requireAuth('customer', 'driver'), validate({ query: lis
 }));
 
 router.get('/bookings/:id', requireAuth(), validate({ params: idParams }), asyncHandler(async (req, res) => {
-    res.json({ booking: await loadForViewer(req.params.id, req.auth) });
+    res.json({ booking: await getBookingForViewer(req.params.id, req.auth) });
 }));
 
 router.post('/bookings/:id/cancel', requireAuth('customer', 'admin'), validate({
@@ -115,7 +115,7 @@ router.post('/bookings/:id/cancel', requireAuth('customer', 'admin'), validate({
     const isAdmin = req.auth.role === 'admin';
     if (isAdmin && !['super', 'operations'].includes(req.auth.adminRole)) throw forbidden('Your admin role does not allow this action');
     const settings = await rentals.getSettings();
-    const booking = await transition(req.params.id, 'cancel', req.auth, {
+    const booking = await transitionBooking(req.params.id, 'cancel', req.auth, {
         guard: async current => {
             if (current.type !== 'rental') return;
             if (isAdmin && (!req.body.reason || req.body.reason.length < 3)) throw badRequest('Give a reason for cancelling; the customer will see it');
@@ -130,7 +130,7 @@ router.post('/bookings/:id/cancel', requireAuth('customer', 'admin'), validate({
         set: current => {
             const cancellation = { by: req.auth.role, reason: req.body.reason, at: new Date() };
             if (current.type === 'rental' && current.rentalType) {
-                const terms = rentals.cancellationTerms(current, settings, { refundPercent: isAdmin ? (req.body.refundPercent ?? 100) : undefined });
+                const terms = rentals.getCancellationTerms(current, settings, { refundPercent: isAdmin ? (req.body.refundPercent ?? 100) : undefined });
                 Object.assign(cancellation, { refundPercent: terms.refundPercent, charge: terms.charge });
             }
             return { cancellation };
@@ -141,7 +141,7 @@ router.post('/bookings/:id/cancel', requireAuth('customer', 'admin'), validate({
         const { notifyOperations } = require('../rentals/rental.routes');
         await notifyOperations(booking, `${booking.reference || 'Booking'} cancelled by customer`, req.body.reason || 'No reason given');
     }
-    res.json({ booking: await loadForViewer(booking._id, req.auth) });
+    res.json({ booking: await getBookingForViewer(booking._id, req.auth) });
 }));
 
 router.post('/bookings/:id/rate', requireAuth('customer', 'driver'), validate({
@@ -166,10 +166,10 @@ router.post('/bookings/:id/rate', requireAuth('customer', 'driver'), validate({
     const target = isCustomer ? Driver : User;
     await target.updateOne({ _id: isCustomer ? booking.driver : booking.user }, { $inc: { 'rating.total': req.body.score, 'rating.count': 1 } });
     if (isCustomer) {
-        await notify({ recipient: booking.driver, role: 'driver', type: 'rating.received', title: `You received ${req.body.score}★`, body: req.body.comment || 'A rider rated your trip.', booking });
+        await sendNotification({ recipient: booking.driver, role: 'driver', type: 'rating.received', title: `You received ${req.body.score}★`, body: req.body.comment || 'A rider rated your trip.', booking });
     }
-    broadcastBooking(booking);
-    res.json({ booking: await loadForViewer(booking._id, req.auth) });
+    broadcastBookingUpdate(booking);
+    res.json({ booking: await getBookingForViewer(booking._id, req.auth) });
 }));
 
 module.exports = { router };

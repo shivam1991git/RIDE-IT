@@ -3,8 +3,8 @@ const { Booking } = require('../bookings/booking.model');
 const { requireAuth } = require('../../core/middleware/auth.middleware');
 const { validate, idParams } = require('../../core/middleware/request.middleware');
 const payments = require('./stripe.service');
-const { notify, broadcastBooking } = require('../notifications/notification.service');
-const { audit } = require('../audit/audit.service');
+const { sendNotification, broadcastBookingUpdate } = require('../notifications/notification.service');
+const { recordAudit } = require('../audit/audit.service');
 const { asyncHandler, notFound, badRequest, conflict } = require('../../core/http');
 
 const router = express.Router();
@@ -16,8 +16,8 @@ async function markPaid(bookingId, intentId) {
         { new: true },
     );
     if (booking) {
-        await notify({ recipient: booking.user, role: 'customer', type: 'payment.paid', title: 'Payment received', body: `₹${booking.totalAmount} paid by card.`, booking });
-        broadcastBooking(booking);
+        await sendNotification({ recipient: booking.user, role: 'customer', type: 'payment.paid', title: 'Payment received', body: `₹${booking.totalAmount} paid by card.`, booking });
+        broadcastBookingUpdate(booking);
     }
     return booking;
 }
@@ -37,7 +37,7 @@ router.post('/payments/bookings/:id/intent', requireAuth('customer'), validate({
     const intent = await payments.createIntent(booking);
     booking.payment.stripePaymentIntentId = intent.id;
     await booking.save();
-    await audit(req, 'payment.intent_created', 'booking', booking._id, { amount: booking.totalAmount });
+    await recordAudit(req, 'payment.intent_created', 'booking', booking._id, { amount: booking.totalAmount });
     res.json({ clientSecret: intent.client_secret, amount: booking.totalAmount, currency: 'INR' });
 }));
 

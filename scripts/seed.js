@@ -121,7 +121,7 @@ async function main() {
     ]);
 
     // ---------- Bookings in every state ----------
-    const rates = await rentals.activeRates();
+    const rates = await rentals.getActiveRates();
     const pkg = key => rentals.PACKAGES.find(item => item.key === key);
 
     async function rental({ user, car, driver, status, trip, extra = {} }) {
@@ -129,7 +129,7 @@ async function main() {
         const blockEnd = trip.blockEnd || new Date(trip.end.getTime() + settings.bufferMinutes * 60000);
         const booking = await Booking.create({
             type: 'rental',
-            reference: await rentals.nextReference(),
+            reference: await rentals.nextBookingReference(),
             user: user._id,
             driver: driver?._id,
             car: car._id,
@@ -157,15 +157,15 @@ async function main() {
             timeline: extra.timeline || [{ status: 'pending_approval', by: 'customer', at: new Date(trip.start.getTime() - 2 * DAY) }],
         });
         if (rentals.OPEN_STATUSES.includes(status)) {
-            await rentals.reserve('car', car._id, booking._id, trip.start, blockEnd);
-            if (driver) await rentals.reserve('driver', driver._id, booking._id, trip.start, blockEnd);
+            await rentals.reserveSlot('car', car._id, booking._id, trip.start, blockEnd);
+            if (driver) await rentals.reserveSlot('driver', driver._id, booking._id, trip.start, blockEnd);
         }
         return booking;
     }
     const step = (status, at, by, note) => ({ status, at, by, ...(note ? { note } : {}) });
     async function pay(booking, amount, method, by, kind = 'payment', reference) {
         await Payment.create({ booking: booking._id, kind, amount, method, reference, recordedBy: { id: by._id, role: by.adminRole ? 'admin' : 'driver', name: by.fullName } });
-        await rentals.refreshPayment(booking._id);
+        await rentals.syncPaymentSummary(booking._id);
     }
 
     // 1. New request waiting for approval (full day tomorrow).
@@ -236,7 +236,7 @@ async function main() {
             timeline: [step('pending_approval', inDays(-5), 'customer'), step('confirmed', inDays(-4.8), 'admin'), step('arrived', new Date(doneStart.getTime() - 10 * 60000), 'driver'), step('in_progress', doneStart, 'driver'), step('completed', new Date(doneStart.getTime() + 8.5 * HOUR), 'driver')],
         },
     });
-    const doneBill = rentals.settle(done, { actualKm: 96, tolls: 60, parking: 50 }, new Date(doneStart.getTime() + 8.5 * HOUR));
+    const doneBill = rentals.calculateFinalBill(done, { actualKm: 96, tolls: 60, parking: 50 }, new Date(doneStart.getTime() + 8.5 * HOUR));
     await Booking.updateOne({ _id: done._id }, { $set: { settlement: doneBill, finalAmount: done.totalAmount + doneBill.total } });
     await Driver.updateOne({ _id: ravi._id }, { $inc: { 'rating.total': 5, 'rating.count': 1 } });
     await pay(done, 1000, 'upi', admins[1], 'payment', 'UPI-47110022');
@@ -255,7 +255,7 @@ async function main() {
             timeline: [step('pending_approval', inDays(-8), 'customer'), step('confirmed', inDays(-7.9), 'admin'), step('in_progress', pickupStart, 'driver'), step('completed', new Date(pickupStart.getTime() + 1.4 * HOUR), 'driver')],
         },
     });
-    const pickupBill = rentals.settle(pickup, { actualKm: 32 }, new Date(pickupStart.getTime() + 1.4 * HOUR));
+    const pickupBill = rentals.calculateFinalBill(pickup, { actualKm: 32 }, new Date(pickupStart.getTime() + 1.4 * HOUR));
     await Booking.updateOne({ _id: pickup._id }, { $set: { settlement: pickupBill, finalAmount: pickup.totalAmount + pickupBill.total } });
     await Driver.updateOne({ _id: imran._id }, { $inc: { 'rating.total': 4, 'rating.count': 1 } });
     await pay(pickup, pickup.totalAmount + pickupBill.total, 'cash', imran);

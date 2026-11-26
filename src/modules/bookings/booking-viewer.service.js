@@ -8,7 +8,7 @@ const { notFound } = require('../../core/http');
 const CUSTOMER_PUBLIC = 'fullName phoneNumber rating';
 const DRIVER_PUBLIC = 'fullName phoneNumber vehicle rating';
 
-async function loadForViewer(id, auth) {
+async function getBookingForViewer(id, auth) {
     const query = Booking.findById(id)
         .populate('car', 'name image capacity fuelType category registrationNumber luggage ac rentPerHour')
         .populate('driver', DRIVER_PUBLIC)
@@ -43,4 +43,4 @@ async function loadForViewer(id, auth) {
     return json;
 }
 
-module.exports = { loadForViewer };
+module.exports = { getBookingForViewer };

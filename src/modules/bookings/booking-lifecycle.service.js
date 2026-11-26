@@ -1,7 +1,7 @@
 const { Booking, TERMINAL_STATUSES } = require('./booking.model');
 const rentals = require('../rentals/rental.service');
-const { notify, broadcastBooking } = require('../notifications/notification.service');
-const { audit } = require('../audit/audit.service');
+const { sendNotification, broadcastBookingUpdate } = require('../notifications/notification.service');
+const { recordAudit } = require('../audit/audit.service');
 const payments = require('../payments/stripe.service');
 const promos = require('../rides/promo.service');
 const { HttpError, notFound, forbidden, conflict } = require('../../core/http');
@@ -75,7 +75,7 @@ function ownershipFilter(booking, auth, action) {
  * Applies a lifecycle action atomically. The update is guarded by the status
  * the caller observed, so concurrent actions cannot both succeed.
  */
-async function transition(bookingId, action, auth, options = {}) {
+async function transitionBooking(bookingId, action, auth, options = {}) {
     const booking = await Booking.findById(bookingId).select('+pin');
     if (!booking) throw notFound('Booking not found');
 
@@ -115,21 +115,21 @@ async function transition(bookingId, action, auth, options = {}) {
     }
     if (!updated) throw conflict('This booking was just updated by someone else. Please refresh.', 'stale');
 
-    await afterTransition(updated, action, auth, booking);
+    await runTransitionSideEffects(updated, action, auth, booking);
     return updated;
 }
 
-async function afterTransition(booking, action, auth, previous) {
+async function runTransitionSideEffects(booking, action, auth, previous) {
     if (booking.type === 'rental' && ['cancelled', 'rejected'].includes(booking.status)) {
-        await rentals.release('car', booking.car, booking._id);
-        await rentals.release('driver', booking.driver, booking._id);
+        await rentals.releaseSlot('car', booking.car, booking._id);
+        await rentals.releaseSlot('driver', booking.driver, booking._id);
     }
     if (booking.status === 'cancelled' && booking.payment?.status === 'paid' && booking.payment.method === 'card') {
         await payments.refund(booking);
     }
     // Manual (cash/UPI) rentals: refresh what is paid, due or to be refunded.
     if (booking.type === 'rental' && booking.rentalType && ['cancelled', 'rejected', 'completed'].includes(booking.status)) {
-        await rentals.refreshPayment(booking._id);
+        await rentals.syncPaymentSummary(booking._id);
     }
 
     if (['cancelled', 'expired'].includes(booking.status) && booking.promo?.code) {
@@ -143,14 +143,14 @@ async function afterTransition(booking, action, auth, previous) {
     if (booking.reference) title = `${booking.reference}: ${title}`;
     if (booking.status === 'rejected' && booking.rejection?.reason) body = `${body} Reason: ${booking.rejection.reason}`;
     if (auth.role !== 'customer') {
-        await notify({ recipient: booking.user, role: 'customer', type: `booking.${booking.status}`, title, body, booking });
+        await sendNotification({ recipient: booking.user, role: 'customer', type: `booking.${booking.status}`, title, body, booking });
     }
     const driverToTell = booking.driver || (action === 'release' ? previous.driver : null);
     if (driverToTell && auth.role !== 'driver' && booking.status === 'cancelled') {
-        await notify({ recipient: driverToTell, role: 'driver', type: 'booking.cancelled', title: 'Trip cancelled', body: 'The customer or an admin cancelled this trip.', booking });
+        await sendNotification({ recipient: driverToTell, role: 'driver', type: 'booking.cancelled', title: 'Trip cancelled', body: 'The customer or an admin cancelled this trip.', booking });
     }
-    broadcastBooking(booking);
-    await audit(auth.role === 'system' ? null : { auth }, `booking.${action}`, 'booking', booking._id, { from: previous.status, to: booking.status });
+    broadcastBookingUpdate(booking);
+    await recordAudit(auth.role === 'system' ? null : { auth }, `booking.${action}`, 'booking', booking._id, { from: previous.status, to: booking.status });
 }
 
 async function expireStaleRideRequests(maxAgeMin = RIDE_REQUEST_TTL_MIN) {
@@ -165,7 +165,7 @@ async function expireStaleRideRequests(maxAgeMin = RIDE_REQUEST_TTL_MIN) {
     let expired = 0;
     for (const { _id } of stale) {
         try {
-            await transition(_id, 'expire', { role: 'system' });
+            await transitionBooking(_id, 'expire', { role: 'system' });
             expired += 1;
         } catch (error) {
             // Accepted or cancelled in the meantime; nothing to do.
@@ -189,13 +189,13 @@ async function dispatchScheduledRides(now = new Date()) {
     const result = { dispatched: 0, expired: 0, waiting: 0 };
     for (const ride of due) {
         try {
-            await transition(ride._id, 'dispatch', { role: 'system' }, { set: { activeCustomer: true } });
+            await transitionBooking(ride._id, 'dispatch', { role: 'system' }, { set: { activeCustomer: true } });
             result.dispatched += 1;
         } catch (error) {
             if (error.code !== 'already_active') continue; // cancelled or changed meanwhile
             if (now.getTime() > ride.scheduledFor.getTime() + SCHEDULE_GRACE_MIN * 60 * 1000) {
                 try {
-                    await transition(ride._id, 'expire', { role: 'system' }, {
+                    await transitionBooking(ride._id, 'expire', { role: 'system' }, {
                         set: { cancellation: { by: 'system', reason: 'You were on another trip at the scheduled pickup time', at: now } },
                     });
                     result.expired += 1;
@@ -219,7 +219,7 @@ async function rejectUnconfirmedRentals(now = new Date()) {
     let rejected = 0;
     for (const { _id } of stale) {
         try {
-            await transition(_id, 'reject', { role: 'system' }, {
+            await transitionBooking(_id, 'reject', { role: 'system' }, {
                 set: { rejection: { reason: 'We could not confirm this booking before the pickup time', at: now } },
             });
             rejected += 1;
@@ -236,7 +236,7 @@ module.exports = {
     RIDE_REQUEST_TTL_MIN,
     SCHEDULE_DISPATCH_LEAD_MIN,
     SCHEDULE_GRACE_MIN,
-    transition,
+    transitionBooking,
     expireStaleRideRequests,
     dispatchScheduledRides,
 };

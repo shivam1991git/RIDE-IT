@@ -7,7 +7,7 @@ const { SupportTicket } = require('../support/support-ticket.model');
 const { Feedback } = require('../support/feedback.model');
 const { requireAuth } = require('../../core/middleware/auth.middleware');
 const { validate, idParams, limiter } = require('../../core/middleware/request.middleware');
-const { audit } = require('../audit/audit.service');
+const { recordAudit } = require('../audit/audit.service');
 const { emitToRoom } = require('../notifications/realtime.service');
 const v = require('../../core/validation');
 const { asyncHandler, notFound, badRequest, conflict } = require('../../core/http');
@@ -139,7 +139,7 @@ router.post('/feedback', requireAuth('customer', 'driver'), limiter({ windowMs: 
         userId: req.auth.role === 'customer' ? req.auth.id : undefined,
         driverId: req.auth.role === 'driver' ? req.auth.id : undefined,
     });
-    await audit(req, 'feedback.create', 'feedback', feedback._id);
+    await recordAudit(req, 'feedback.create', 'feedback', feedback._id);
     res.status(201).json({ ok: true });
 }));
 

@@ -686,20 +686,20 @@ describe('background jobs, the rides switch and pure rules', () => {
         const startedAt = new Date('2026-12-01T04:00:00Z');
         const booking = { rates: { includedKm: 40, includedHours: 4, extraKmRate: 13, extraHourRate: 150, gstPercent: 5 }, trip: { startedAt } };
         const after = minutes => new Date(startedAt.getTime() + minutes * 60000);
-        expect(rentals.settle(booking, { actualKm: 40 }, after(4 * 60 + 14)).extraHours).toBe(0);
-        expect(rentals.settle(booking, { actualKm: 40 }, after(4 * 60 + 16)).extraHours).toBe(1);
-        const long = rentals.settle(booking, { actualKm: 40.4, tolls: 0 }, after(6 * 60 + 30));
+        expect(rentals.calculateFinalBill(booking, { actualKm: 40 }, after(4 * 60 + 14)).extraHours).toBe(0);
+        expect(rentals.calculateFinalBill(booking, { actualKm: 40 }, after(4 * 60 + 16)).extraHours).toBe(1);
+        const long = rentals.calculateFinalBill(booking, { actualKm: 40.4, tolls: 0 }, after(6 * 60 + 30));
         expect(long).toMatchObject({ extraHours: 3, extraHourCharge: 450, extraKm: 1, gst: 23 });
     });
 
     test('payment status is derived from records and booking status', () => {
         const base = { totalAmount: 1000, status: 'confirmed' };
-        expect(rentals.paymentSummary(base, 0, 0).status).toBe('unpaid');
-        expect(rentals.paymentSummary(base, 300, 0).status).toBe('advance_paid');
-        expect(rentals.paymentSummary({ ...base, status: 'in_progress' }, 300, 0).status).toBe('partially_paid');
-        expect(rentals.paymentSummary(base, 1000, 0).status).toBe('paid');
-        expect(rentals.paymentSummary({ ...base, status: 'completed', finalAmount: 900 }, 1000, 0)).toMatchObject({ status: 'refund_pending', refundDue: 100 });
-        expect(rentals.paymentSummary({ ...base, status: 'cancelled', cancellation: { charge: 0 } }, 0, 0).status).toBe('unpaid');
-        expect(rentals.paymentSummary({ ...base, status: 'rejected' }, 500, 500).status).toBe('refunded');
+        expect(rentals.summarizePayments(base, 0, 0).status).toBe('unpaid');
+        expect(rentals.summarizePayments(base, 300, 0).status).toBe('advance_paid');
+        expect(rentals.summarizePayments({ ...base, status: 'in_progress' }, 300, 0).status).toBe('partially_paid');
+        expect(rentals.summarizePayments(base, 1000, 0).status).toBe('paid');
+        expect(rentals.summarizePayments({ ...base, status: 'completed', finalAmount: 900 }, 1000, 0)).toMatchObject({ status: 'refund_pending', refundDue: 100 });
+        expect(rentals.summarizePayments({ ...base, status: 'cancelled', cancellation: { charge: 0 } }, 0, 0).status).toBe('unpaid');
+        expect(rentals.summarizePayments({ ...base, status: 'rejected' }, 500, 500).status).toBe('refunded');
     });
 });

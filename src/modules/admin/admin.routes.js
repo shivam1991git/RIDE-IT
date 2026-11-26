@@ -16,11 +16,11 @@ const rentals = require('../rentals/rental.service');
 const ops = require('../rentals/rental-operations.service');
 const { requireAuth, allowAdmin } = require('../../core/middleware/auth.middleware');
 const { validate, idParams } = require('../../core/middleware/request.middleware');
-const { transition } = require('../bookings/booking-lifecycle.service');
+const { transitionBooking } = require('../bookings/booking-lifecycle.service');
 const { hashPassword } = require('../auth/auth.service');
-const { notify } = require('../notifications/notification.service');
-const { audit } = require('../audit/audit.service');
-const { loadForViewer } = require('../bookings/booking-viewer.service');
+const { sendNotification } = require('../notifications/notification.service');
+const { recordAudit } = require('../audit/audit.service');
+const { getBookingForViewer } = require('../bookings/booking-viewer.service');
 const { reschedule } = require('../rentals/rental.routes');
 const v = require('../../core/validation');
 const { asyncHandler, notFound, conflict, badRequest, paginate, escapeRegex } = require('../../core/http');
@@ -111,7 +111,7 @@ router.get('/stats', asyncHandler(async (req, res) => {
             Booking.countDocuments({ type: 'rental', status: 'confirmed', driver: { $ne: null }, 'assignment.acknowledgedAt': null, start: { $lt: new Date(now.getTime() + 24 * 3600e3) } }),
             Booking.countDocuments({ type: 'rental', 'payment.status': { $in: ['refund_pending', 'partially_refunded'] } }),
         ]),
-        rentals.complianceAlerts(30, now),
+        rentals.listComplianceAlerts(30, now),
     ]);
 
     const paid = collected.find(row => row._id === 'payment')?.total || 0;
@@ -191,7 +191,7 @@ for (const [path, role] of Object.entries(peopleRoles)) {
             // Drivers added by operations are vetted offline; compliance fields still gate assignment.
             ...(role === 'driver' ? { status: 'approved' } : {}),
         });
-        await audit(req, `${role}.create`, role, account._id, role === 'admin' ? { adminRole: account.adminRole } : undefined);
+        await recordAudit(req, `${role}.create`, role, account._id, role === 'admin' ? { adminRole: account.adminRole } : undefined);
         res.status(201).json({ item: account });
     }));
 
@@ -233,7 +233,7 @@ for (const [path, role] of Object.entries(peopleRoles)) {
         await account.save();
 
         if (role === 'driver' && fields.status && ['approved', 'rejected'].includes(fields.status)) {
-            await notify({
+            await sendNotification({
                 recipient: account._id,
                 role: 'driver',
                 type: `driver.${fields.status}`,
@@ -241,7 +241,7 @@ for (const [path, role] of Object.entries(peopleRoles)) {
                 body: fields.status === 'approved' ? 'Your chauffeur profile is approved. Trips assigned to you will appear on your dashboard.' : 'Your driver application was not approved. Contact support for details.',
             });
         }
-        await audit(req, `${role}.update`, role, account._id, { fields: Object.keys(data) });
+        await recordAudit(req, `${role}.update`, role, account._id, { fields: Object.keys(data) });
         res.json({ item: account });
     }));
 
@@ -257,7 +257,7 @@ for (const [path, role] of Object.entries(peopleRoles)) {
         }
         const deleted = await Model.findByIdAndDelete(req.params.id);
         if (!deleted) throw notFound(`${role} not found`);
-        await audit(req, `${role}.delete`, role, deleted._id);
+        await recordAudit(req, `${role}.delete`, role, deleted._id);
         res.json({ ok: true });
     }));
 }
@@ -285,7 +285,7 @@ const carBody = z.object({
 });
 
 // Flattens nested document fields so a partial update never wipes sibling documents.
-function carUpdate(body) {
+function toCarUpdateFields(body) {
     const { documents, ...rest } = body;
     const set = { ...rest };
     for (const [key, doc] of Object.entries(documents || {})) {
@@ -295,31 +295,31 @@ function carUpdate(body) {
     return set;
 }
 
-async function assertOwner(ownerId) {
+async function assertFleetOwnerExists(ownerId) {
     if (ownerId && !(await FleetOwner.exists({ _id: ownerId }))) throw badRequest('Fleet owner not found');
 }
 
 router.get('/cars', SUPPORT, asyncHandler(async (req, res) => {
     const now = new Date();
     const items = await Car.find().sort({ active: -1, category: 1, name: 1 }).populate('owner', 'name type').lean();
-    res.json({ items: items.map(car => ({ ...car, issue: rentals.vehicleIssue(car, now) })) });
+    res.json({ items: items.map(car => ({ ...car, issue: rentals.getCarComplianceIssue(car, now) })) });
 }));
 
 router.post('/cars', OPERATE, validate({ body: carBody }), asyncHandler(async (req, res) => {
-    await assertOwner(req.body.owner);
+    await assertFleetOwnerExists(req.body.owner);
     const car = await Car.create(req.body);
-    await audit(req, 'car.create', 'car', car._id);
+    await recordAudit(req, 'car.create', 'car', car._id);
     res.status(201).json({ item: car });
 }));
 
 router.patch('/cars/:id', OPERATE, rememberSentKeys, validate({ params: idParams, body: carBody.partial() }), asyncHandler(async (req, res) => {
-    await assertOwner(req.body.owner);
+    await assertFleetOwnerExists(req.body.owner);
     // The partial schema still applies defaults; only keep keys that were sent.
     const sent = Object.fromEntries(Object.entries(req.body).filter(([key, value]) => value !== undefined && req.sentKeys.has(key)));
     if (!Object.keys(sent).length) throw badRequest('Nothing to update');
-    const car = await Car.findByIdAndUpdate(req.params.id, { $set: carUpdate(sent) }, { new: true, runValidators: true });
+    const car = await Car.findByIdAndUpdate(req.params.id, { $set: toCarUpdateFields(sent) }, { new: true, runValidators: true });
     if (!car) throw notFound('Car not found');
-    await audit(req, 'car.update', 'car', car._id, { fields: Object.keys(sent) });
+    await recordAudit(req, 'car.update', 'car', car._id, { fields: Object.keys(sent) });
     res.json({ item: car });
 }));
 
@@ -329,12 +329,12 @@ router.delete('/cars/:id', OPERATE, validate({ params: idParams }), asyncHandler
         const open = await Booking.exists({ car: req.params.id, status: { $in: rentals.OPEN_STATUSES } });
         if (open) throw conflict('This car has upcoming bookings. Move them to another car first.', 'has_bookings');
         await Car.updateOne({ _id: req.params.id }, { $set: { active: false } });
-        await audit(req, 'car.retire', 'car', req.params.id);
+        await recordAudit(req, 'car.retire', 'car', req.params.id);
         return res.json({ ok: true, retired: true });
     }
     const deleted = await Car.findByIdAndDelete(req.params.id);
     if (!deleted) throw notFound('Car not found');
-    await audit(req, 'car.delete', 'car', deleted._id);
+    await recordAudit(req, 'car.delete', 'car', deleted._id);
     return res.json({ ok: true });
 }));
 
@@ -354,7 +354,7 @@ const ownerBody = z.object({
     active: z.boolean().optional(),
 });
 
-function checkAgreement(agreement) {
+function assertValidAgreement(agreement) {
     if (agreement?.startsOn && agreement?.endsOn && agreement.endsOn <= agreement.startsOn) throw badRequest('Agreement end must be after its start');
 }
 
@@ -368,25 +368,25 @@ router.get('/owners', SUPPORT, asyncHandler(async (req, res) => {
 }));
 
 router.post('/owners', OPERATE, validate({ body: ownerBody }), asyncHandler(async (req, res) => {
-    checkAgreement(req.body.agreement);
+    assertValidAgreement(req.body.agreement);
     const item = await FleetOwner.create(req.body);
-    await audit(req, 'owner.create', 'owner', item._id);
+    await recordAudit(req, 'owner.create', 'owner', item._id);
     res.status(201).json({ item });
 }));
 
 router.patch('/owners/:id', OPERATE, validate({ params: idParams, body: ownerBody.partial() }), asyncHandler(async (req, res) => {
-    checkAgreement(req.body.agreement);
+    assertValidAgreement(req.body.agreement);
     if (req.body.active === false && await Car.exists({ owner: req.params.id, active: true })) {
         throw conflict('This owner still has active cars. Retire or move them first.', 'has_cars');
     }
     const item = await FleetOwner.findByIdAndUpdate(req.params.id, { $set: req.body }, { new: true, runValidators: true });
     if (!item) throw notFound('Owner not found');
-    await audit(req, 'owner.update', 'owner', item._id, { fields: Object.keys(req.body) });
+    await recordAudit(req, 'owner.update', 'owner', item._id, { fields: Object.keys(req.body) });
     res.json({ item });
 }));
 
 router.get('/compliance', SUPPORT, asyncHandler(async (req, res) => {
-    res.json({ items: await rentals.complianceAlerts(30) });
+    res.json({ items: await rentals.listComplianceAlerts(30) });
 }));
 
 // ---------- Bookings ----------
@@ -430,20 +430,20 @@ router.get('/bookings', SUPPORT, validate({ query: listQuery }), asyncHandler(as
 
 router.get('/bookings/:id', SUPPORT, validate({ params: idParams }), asyncHandler(async (req, res) => {
     const [booking, payments] = await Promise.all([
-        loadForViewer(req.params.id, req.auth),
+        getBookingForViewer(req.params.id, req.auth),
         Payment.find({ booking: req.params.id }).sort({ createdAt: 1 }).lean(),
     ]);
     res.json({ booking, payments });
 }));
 
 router.get('/bookings/:id/candidates', OPERATE, validate({ params: idParams }), asyncHandler(async (req, res) => {
-    res.json(await ops.candidates(req.params.id));
+    res.json(await ops.listAssignmentCandidates(req.params.id));
 }));
 
 const respond = async (req, res, booking, action, meta) => {
-    await audit(req, `booking.${action}`, 'booking', booking._id, meta);
+    await recordAudit(req, `booking.${action}`, 'booking', booking._id, meta);
     const [full, payments] = await Promise.all([
-        loadForViewer(booking._id, req.auth),
+        getBookingForViewer(booking._id, req.auth),
         Payment.find({ booking: booking._id }).sort({ createdAt: 1 }).lean(),
     ]);
     res.json({ booking: full, payments });
@@ -455,7 +455,7 @@ router.post('/bookings/:id/approve', OPERATE, validate({
     params: idParams,
     body: z.object({ driverId: objectIdString('driver'), carId: objectIdString('car').optional() }),
 }), asyncHandler(async (req, res) => {
-    const booking = await ops.approve(req.params.id, req.auth, req.body);
+    const booking = await ops.approveBooking(req.params.id, req.auth, req.body);
     await respond(req, res, booking, 'approve', { driver: req.body.driverId, car: booking.car });
 }));
 
@@ -463,7 +463,7 @@ router.post('/bookings/:id/reject', OPERATE, validate({
     params: idParams,
     body: z.object({ reason: v.trimmed(5, 300, 'Reason') }),
 }), asyncHandler(async (req, res) => {
-    const booking = await ops.reject(req.params.id, req.auth, req.body.reason);
+    const booking = await ops.rejectBooking(req.params.id, req.auth, req.body.reason);
     await respond(req, res, booking, 'reject', { reason: req.body.reason });
 }));
 
@@ -523,7 +523,7 @@ router.post('/bookings/:id/complete', OPERATE, validate({
     if (current.type === 'rental' && current.rentalType) {
         booking = await ops.completeRental(req.params.id, req.auth, req.body);
     } else {
-        booking = await transition(req.params.id, 'complete', req.auth, {
+        booking = await transitionBooking(req.params.id, 'complete', req.auth, {
             set: existing => (existing.payment?.method === 'cash' ? { 'payment.status': 'paid', 'payment.paidAt': new Date() } : {}),
         });
     }
@@ -564,7 +564,7 @@ router.patch('/rates/:vehicleClass', SUPER, validate({
         set.packages = PACKAGES.map(pkg => ({ key: pkg.key, price: prices[pkg.key] ?? 0 }));
     }
     const item = await RentalRate.findByIdAndUpdate(current._id, { $set: set }, { new: true, runValidators: true });
-    await audit(req, 'rates.update', 'rates', item._id, req.body);
+    await recordAudit(req, 'rates.update', 'rates', item._id, req.body);
     res.json({ item });
 }));
 
@@ -587,7 +587,7 @@ router.patch('/fares/:key', SUPER, validate({
 }), asyncHandler(async (req, res) => {
     const item = await FareConfig.findOneAndUpdate({ key: req.params.key }, { $set: req.body }, { new: true, runValidators: true });
     if (!item) throw notFound('Category not found');
-    await audit(req, 'fare.update', 'fare', item._id, req.body);
+    await recordAudit(req, 'fare.update', 'fare', item._id, req.body);
     res.json({ item });
 }));
 
@@ -619,7 +619,7 @@ router.patch('/settings', SUPER, validate({
     if (cancellation.partialHours > cancellation.freeHours) throw badRequest('The partial-refund window must be shorter than the free-cancellation window');
     const { cancellation: ignored, ...rest } = req.body;
     const item = await Settings.findOneAndUpdate({ key: 'global' }, { $set: { ...rest, cancellation } }, { new: true, runValidators: true }).lean();
-    await audit(req, 'settings.update', 'settings', item._id, req.body);
+    await recordAudit(req, 'settings.update', 'settings', item._id, req.body);
     res.json({ item });
 }));
 
@@ -641,7 +641,7 @@ const promoBody = z.object({
     active: z.boolean().default(true),
 });
 
-function checkPromo(promo) {
+function assertValidPromo(promo) {
     if (promo.kind === 'percent' && promo.value > 90) throw badRequest('A percentage discount can be at most 90%');
     if (promo.kind === 'flat' && promo.value > 5000) throw badRequest('A flat discount can be at most ₹5000');
     const from = promo.validFrom ? new Date(promo.validFrom) : new Date();
@@ -653,9 +653,9 @@ router.get('/promos', SUPER, asyncHandler(async (req, res) => {
 }));
 
 router.post('/promos', SUPER, validate({ body: promoBody }), asyncHandler(async (req, res) => {
-    checkPromo(req.body);
+    assertValidPromo(req.body);
     const item = await Promo.create(req.body).catch(promos.assertUniqueCodeError);
-    await audit(req, 'promo.create', 'promo', item._id, { code: item.code });
+    await recordAudit(req, 'promo.create', 'promo', item._id, { code: item.code });
     res.status(201).json({ item });
 }));
 
@@ -669,9 +669,9 @@ router.patch('/promos/:id', SUPER, rememberSentKeys, validate({
     // Defaults from the create schema must not overwrite stored values on a partial update.
     const changes = Object.fromEntries(Object.entries(req.body).filter(([key]) => req.sentKeys.has(key)));
     if (!Object.keys(changes).length) throw badRequest('Nothing to update');
-    checkPromo({ ...current, ...changes });
+    assertValidPromo({ ...current, ...changes });
     const item = await Promo.findByIdAndUpdate(req.params.id, { $set: changes }, { new: true, runValidators: true });
-    await audit(req, 'promo.update', 'promo', item._id, changes);
+    await recordAudit(req, 'promo.update', 'promo', item._id, changes);
     res.json({ item });
 }));
 
@@ -716,7 +716,7 @@ router.patch('/support/:id', SUPPORT, validate({
     const ticket = await SupportTicket.findByIdAndUpdate(req.params.id, { $set: req.body }, { new: true });
     if (!ticket) throw notFound('Ticket not found');
     if (req.body.adminReply || req.body.status === 'resolved') {
-        await notify({
+        await sendNotification({
             recipient: ticket.requester,
             role: ticket.requesterRole,
             type: 'support.update',
@@ -724,7 +724,7 @@ router.patch('/support/:id', SUPPORT, validate({
             body: (req.body.adminReply || 'Your ticket has been resolved.').slice(0, 400),
         });
     }
-    await audit(req, 'support.update', 'ticket', ticket._id, { status: req.body.status });
+    await recordAudit(req, 'support.update', 'ticket', ticket._id, { status: req.body.status });
     res.json({ item: ticket });
 }));
 

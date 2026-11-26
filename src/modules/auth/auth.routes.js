@@ -7,7 +7,7 @@ const { validate, limiter } = require('../../core/middleware/request.middleware'
 const v = require('../../core/validation');
 const authService = require('./auth.service');
 const { sendMail } = require('../notifications/mailer.service');
-const { audit } = require('../audit/audit.service');
+const { recordAudit } = require('../audit/audit.service');
 const { asyncHandler, unauthorized, badRequest, conflict, forbidden } = require('../../core/http');
 
 const router = express.Router();
@@ -53,7 +53,7 @@ router.post('/register', authIpLimiter, asyncHandler(async (req, res) => {
     }
 
     const account = await Model.create({ ...data, password: await authService.hashPassword(data.password) });
-    await audit({ auth: { id: account._id, role } }, 'account.register', role, account._id);
+    await recordAudit({ auth: { id: account._id, role } }, 'account.register', role, account._id);
 
     if (role === 'driver') {
         // Drivers wait for admin verification before they can sign in to take rides.
@@ -75,7 +75,7 @@ router.post('/login', authIpLimiter, accountLimiter, loginLimiter, validate({
     if (role === 'driver' && account.status === 'rejected') throw forbidden('Your driver application was not approved. Contact support.');
 
     authService.issueSession(res, account, role);
-    await audit({ auth: { id: account._id, role } }, 'account.login', role, account._id);
+    await recordAudit({ auth: { id: account._id, role } }, 'account.login', role, account._id);
     res.json(sessionResponse(account, role));
 }));
 
@@ -163,7 +163,7 @@ router.post('/change-password', requireAuth(), validate({
     account.tokenVersion = (account.tokenVersion || 0) + 1;
     await account.save();
     authService.issueSession(res, account, req.auth.role);
-    await audit(req, 'account.password_changed', req.auth.role, account._id);
+    await recordAudit(req, 'account.password_changed', req.auth.role, account._id);
     res.json({ ok: true });
 }));
 
@@ -204,7 +204,7 @@ router.post('/reset-password', resetLimiter, validate({
     account.resetPasswordExpires = undefined;
     account.tokenVersion = (account.tokenVersion || 0) + 1;
     await account.save();
-    await audit({ auth: { id: account._id, role } }, 'account.password_reset', role, account._id);
+    await recordAudit({ auth: { id: account._id, role } }, 'account.password_reset', role, account._id);
     res.json({ ok: true });
 }));
 
