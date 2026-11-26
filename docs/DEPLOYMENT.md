@@ -1,6 +1,6 @@
 # Deploying RIDE-IT v2
 
-The web app stays on **Vercel** (project root `client/`) and the API on **Render** (repo root). Vercel rewrites `/api/*` to Render, so the browser treats the API as same-origin. That lets sessions use `httpOnly` `SameSite=Lax` cookies, which browsers would block as third-party cookies across `vercel.app` and `onrender.com`.
+The web app stays on **Vercel** (Root Directory `frontend`) and the API on **Render** (Root Directory `backend`). Vercel rewrites `/api/*` to Render, so the browser treats the API as same-origin. That lets sessions use `httpOnly` `SameSite=Lax` cookies, which browsers would block as third-party cookies across `vercel.app` and `onrender.com`.
 
 > v2 replaces the v1 API, so deploy the API and the web app together. Run the data migration before the new API serves traffic.
 
@@ -9,13 +9,13 @@ The web app stays on **Vercel** (project root `client/`) and the API on **Render
 1. **Back up Atlas**: take an Atlas snapshot or run `mongodump`.
 2. **Dry-run the migration** against production from your machine. It writes nothing:
    ```bash
-   MONGO_URI="<atlas uri>" MONGO_DB_NAME=ride-it JWT_SECRET=x npm run migrate
+   cd backend && MONGO_URI="<atlas uri>" MONGO_DB_NAME=ride-it JWT_SECRET=x npm run migrate
    ```
    It reports duplicate usernames and emails (these block the new unique indexes), legacy bookings to convert, numeric phone numbers and plaintext passwords.
 3. Resolve any duplicates it lists, then run it with `--apply`.
 4. Create your first admin. v2 has no public admin sign-up:
    ```bash
-   ADMIN_PASSWORD='…' MONGO_URI="<atlas uri>" JWT_SECRET=x npm run create-admin -- --username you --email you@example.com --name "Your Name" --phone 9876543210
+   cd backend && ADMIN_PASSWORD='…' MONGO_URI="<atlas uri>" JWT_SECRET=x npm run create-admin -- --username you --email you@example.com --name "Your Name" --phone 9876543210
    ```
 
 What the migration does, all additively (v1 fields are kept, so you can roll back by redeploying v1):
@@ -34,7 +34,7 @@ Plaintext v1 passwords are re-hashed with bcrypt the first time each user signs 
 
 | Setting | Value |
 |---|---|
-| Root directory | repo root |
+| Root directory | `backend` |
 | Build command | `npm ci --omit=dev` |
 | Start command | `node server.js` |
 | Health check path | `/api/health` |
@@ -58,9 +58,9 @@ Environment variables:
 
 ## 3. Web app on Vercel
 
-`client/vercel.json` sets the Vite framework, the `dist` output, the `/api` rewrite, SPA fallback, security headers and CSP. It overrides the old CRA settings in the Vercel dashboard.
+`frontend/vercel.json` sets the Vite framework, the `dist` output, the `/api` rewrite, SPA fallback, security headers and CSP. It overrides the old CRA settings in the Vercel dashboard.
 
-`client/vercel.json` points at the Render service `https://ride-it-xmf3.onrender.com` (rewrite and CSP `connect-src`). Update both if the service moves.
+`frontend/vercel.json` points at the Render service `https://ride-it-xmf3.onrender.com` (rewrite and CSP `connect-src`). Update both if the service moves.
 
 Environment variables (Vercel → Settings → Environment Variables):
 

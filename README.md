@@ -69,14 +69,16 @@ Other features: printable invoice/booking summary, ratings with low scores flagg
 Prerequisites: Node 20+ and MongoDB Community Server installed locally.
 
 ```bash
+cd backend
 npm install                 # API
-npm install --prefix client # web app
 cp .env.example .env        # then set JWT_SECRET and JWT_REFRESH_SECRET to long random strings
-
-npm run db:local            # terminal 1: private MongoDB on 127.0.0.1:27027 (data in ./.localdb)
+npm run db:local            # terminal 1: private MongoDB on 127.0.0.1:27027 (data in backend/.localdb)
 npm run seed -- --reset     # synthetic demo data (refuses to run against a non-local database)
 npm run dev                 # terminal 2: API on http://localhost:5000
-npm run client              # terminal 3: web app on http://localhost:5173
+
+cd frontend
+npm install                 # web app
+npm run dev                 # terminal 3: web app on http://localhost:5173
 ```
 
 Demo accounts (password `Demo@1234`):
@@ -96,10 +98,11 @@ Without SMTP settings, password-reset emails are printed in the API console.
 Nothing leaves the machine with these settings: landmark search and straight-line route estimates instead of OpenStreetMap services, no map tiles, no AI, no Stripe, no SMTP. A separate database name keeps your normal dev data untouched.
 
 ```bash
+cd backend
 npm run db:local
 MONGO_DB_NAME=ride-it-qa npm run seed -- --reset
 MONGO_DB_NAME=ride-it-qa GEO_PROVIDER=offline AI_BASE_URL= STRIPE_SECRET_KEY= SMTP_HOST= node server.js
-cd client && VITE_MAP_TILES=off npx vite
+cd ../frontend && VITE_MAP_TILES=off npx vite
 ```
 
 ### Switching instant rides back on
@@ -108,6 +111,8 @@ Set `RIDES_ENABLED=true` on the API. The Ride page, multi-stop rides, Darshan Ci
 
 ## Scripts
 
+Run these inside `backend/` (the last one inside `frontend/`):
+
 | Command | What it does |
 |---|---|
 | `npm test` | API test suite against an in-memory MongoDB |
@@ -115,19 +120,17 @@ Set `RIDES_ENABLED=true` on the API. The Ride page, multi-stop rides, Darshan Ci
 | `npm run seed [-- --reset]` | Synthetic demo data, local databases only |
 | `npm run create-admin -- --username … --email … --name … --phone …` | Creates a super admin; password comes from `ADMIN_PASSWORD` |
 | `npm run backup` | Exports every collection to `backups/` (Extended JSON) |
-| `npm run build --prefix client` | Production build of the web app |
+| `npm run migrate -- --apply` | Fixes v1 data and creates every database index (run after deploys) |
+| `npm run build` (in `frontend/`) | Production build of the web app |
 
 ## Project layout
 
 ```
-server.js               HTTP server, Socket.IO, background sweeps (unconfirmed requests, ride expiry)
-src/app.js              Express app: security middleware and routes
-src/routes/             rentals (customer), booking (shared + rides), driver, admin, auth, catalog, account, payments, chat
-src/services/           rentals (planning, pricing, locks, compliance, policy, payments), rentalOps (approve/assign/complete),
-                        bookings (state machine), fare, geo, chat, notify
-src/models/             accounts, Car, Booking, rental (owners, rate cards, payments, settings, counters), misc, Promo
-scripts/                local-db, seed, create-admin, backup, migrate-v2
-tests/                  Jest + Supertest suites (rentals.test.js covers Phase 1)
-client/src/             React app: pages/ (rider, driver, admin, auth), components/, providers/, lib/
-docs/                   deployment and security notes
+backend/     API: src/config, src/core (shared plumbing), src/modules/<feature>, scripts/, tests/
+frontend/    Web app: src/app (shell), src/shared (reusable), src/features/<area>
+docs/        ARCHITECTURE.md (full project map), DEPLOYMENT.md, SECURITY.md
 ```
+
+Every backend feature folder uses the same file names (`<thing>.model.js`, `.routes.js`, `.service.js`)
+and every web page ends in `Page.jsx`. See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full
+map and a "where to find…" table.
