@@ -52,6 +52,7 @@ function createApp() {
     app.use('/api/auth', require('./modules/auth/auth.routes'));
     app.use('/api', require('./modules/catalog/catalog.routes'));
     app.use('/api', require('./modules/rentals/rental.routes').router);
+    app.use('/api', require('./modules/rides/ride.routes').router);
     app.use('/api', require('./modules/bookings/booking.routes').router);
     app.use('/api/driver', require('./modules/drivers/driver.routes'));
     app.use('/api/admin', require('./modules/admin/admin.routes'));

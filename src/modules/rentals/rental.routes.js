@@ -9,6 +9,7 @@ const { Admin } = require('../accounts/account.model');
 const { requireAuth } = require('../../core/middleware/auth.middleware');
 const { validate, limiter, idParams } = require('../../core/middleware/request.middleware');
 const rentals = require('./rental.service');
+const { loadForViewer } = require('../bookings/booking-viewer.service');
 const { notify, broadcastBooking } = require('../notifications/notification.service');
 const { audit } = require('../audit/audit.service');
 const { emitToRoom } = require('../notifications/realtime.service');
@@ -204,7 +205,6 @@ router.post('/rentals', requireAuth('customer'), searchLimiter, validate({ body:
 
     await notifyOperations(booking, `New request ${booking.reference}`, `${rentals.RENTAL_TYPE_LABELS[booking.rentalType]} · ${car.name} · ${rentals.formatDateTime(booking.start)}`);
     await audit(req, 'booking.create', 'booking', booking._id, { type: 'rental', rentalType: booking.rentalType, car: car._id, total: booking.totalAmount });
-    const { loadForViewer } = require('../bookings/booking.routes');
     res.status(201).json({ booking: await loadForViewer(booking._id, req.auth) });
 }));
 
@@ -279,7 +279,6 @@ router.post('/rentals/:id/reschedule', requireAuth('customer'), validate({
 }), asyncHandler(async (req, res) => {
     const updated = await reschedule(req.params.id, req.body.start, req.auth, await rentals.getSettings());
     await audit(req, 'booking.reschedule', 'booking', updated._id, { start: updated.start });
-    const { loadForViewer } = require('../bookings/booking.routes');
     res.json({ booking: await loadForViewer(updated._id, req.auth) });
 }));
 
